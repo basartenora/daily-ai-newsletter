@@ -3,90 +3,74 @@ import smtplib
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from crewai import Agent, Crew, LLM, Process, Task
+from google import genai
 
-# 1. MODELO GEMINI (ÚNICA API NECESARIA)
-gemini_llm = LLM(
-    model="gemini/gemini-3.8-flash",
-    api_key=os.environ.get("GEMINI_API_KEY")
-)
+# 1. CLIENTE OFICIAL DE GOOGLE GEMINI (SIN BUCLES NI BLOQUEOS)
+api_key = os.environ.get("GEMINI_API_KEY")
+client = genai.Client(api_key=api_key)
+model_name = "gemini-2.5-flash"
 
-# 2. AGENTES SIN HERRAMIENTAS EXTERNAS (RÁPIDOS Y SIN DEPENDENCIAS)
-scout = Agent(
-    role="Culture & AI Scout",
-    goal="Identify 3 provocative cultural dilemmas and human-interest tensions emerging from AI adoption.",
-    backstory=(
-        "You are an intellectual trend spotter and cultural curator. "
-        "You observe how AI is reshaping writing, human craft, psychology, workplace culture, and modern society. "
-        "You formulate compelling story premises focused on irony, human friction, and ethical nuance."
-    ),
-    llm=gemini_llm,
-    max_iter=1,
-    verbose=True,
-)
-
-writer = Agent(
-    role="Essayist & Editorial Designer",
-    goal="Transform the cultural premises into a stylish, punchy morning newsletter formatted in clean HTML.",
-    backstory=(
-        "You write in the sharp, observant style of The New York Times culture desk and high-end Substack essayists. "
-        "Your tone is witty, perceptive, and sophisticated. You ban corporate AI buzzwords (delve, revolutionize, landscape). "
-        "You craft memorable titles, clear single-sentence subtitles, narrative paragraphs, and crisp takeaway boxes."
-    ),
-    llm=gemini_llm,
-    max_iter=1,
-    verbose=True,
-)
-
-# 3. TAREAS
-scout_task = Task(
-    description=(
-        "Curate 3 distinct story concepts examining modern life and AI:\n"
-        "1. Story 1: AI's subtle psychological or behavioral impact on human creativity and personal work.\n"
-        "2. Story 2: A workplace or institutional tension where human judgment clashes with automation.\n"
-        "3. Story 3: A cultural curiosity, modern digital habit, or intellectual shift.\n\n"
-        "For each story, provide:\n"
-        "- Provocative title and angle\n"
-        "- The core paradox or human conflict\n"
-        "- A curated royalty-free visual theme keyword (e.g., 'minimalist architecture', 'human hands typing', 'abstract geometric light')\n"
-        "- A memorable, punchy takeaway insight"
-    ),
-    expected_output="Curated briefing with 3 distinct cultural tensions and visual themes.",
-    agent=scout,
-)
-
-write_task = Task(
-    description=(
-        "Write today's edition of 'Your Morning AI & Culture Dispatch' in clean, raw HTML (DO NOT wrap in ```html markdown).\n"
-        "Structure requirements:\n"
-        "- An observational 2-3 sentence introductory hook reflecting on today's cultural current.\n"
-        "- 3 Stories, each formatted with:\n"
-        "  * Category pill: <span class='pill'>Category Name</span> (e.g., 'Mind & Craft', 'Digital Ecology', 'Culture')\n"
-        "  * <h2>Sharp, Catchy Headline</h2>\n"
-        "  * <p class='subtitle'>One elegant sentence summarizing the paradox.</p>\n"
-        "  * An image using Unsplash Source matching the visual theme keyword: <img src='[https://images.unsplash.com/photo-](https://images.unsplash.com/photo-)[relevant-id]?auto=format&fit=crop&w=800&q=80' class='story-img' alt='Editorial Visual' /> (Use curated high-quality Unsplash image URLs: '[https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80)', '[https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=800&q=80)', '[https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80)').\n"
-        "  * 2 rich, engaging narrative paragraphs breaking down the idea.\n"
-        "  * Takeaway box: <div class='takeaway-box'><strong>The takeaway:</strong> The core insight in one sentence.</div>\n"
-        "- A closing parting thought to start the morning."
-    ),
-    expected_output="Fully styled HTML newsletter ready for email delivery.",
-    agent=writer,
-)
-
-# 4. EJECUCIÓN DEL PIPELINE
-crew = Crew(
-    agents=[scout, writer],
-    tasks=[scout_task, write_task],
-    process=Process.sequential,
-    verbose=True,
-)
-
-result = crew.kickoff()
-newsletter_body_html = str(result).replace("```html", "").replace("```", "").strip()
-
-# 5. PLANTILLA EDITORIAL CON TU PALETA DE COLOR
 today_str = datetime.now().strftime("%A, %B %d, %Y")
 
+# 2. AGENTE 1: CULTURE & AI SCOUT
+scout_prompt = f"""
+You are the "Culture & AI Scout", an intellectual trend spotter and cultural curator for a prestigious daily dispatch.
+Today is {today_str}.
+
+Curate 3 distinct story concepts examining modern life and AI:
+1. Story 1: AI's subtle psychological or behavioral impact on human creativity and personal craft.
+2. Story 2: A workplace or institutional tension where human judgment clashes with automation.
+3. Story 3: A cultural curiosity, modern digital habit, or intellectual shift.
+
+For each story, provide:
+- Provocative title and angle
+- The core paradox or human conflict
+- Visual theme keyword (e.g., 'writer at dusk', 'brutalist office', 'smartphones in darkness')
+- A memorable, punchy takeaway insight
+"""
+
+print("-> Running Agent 1 (Culture & AI Scout)...")
+scout_response = client.models.generate_content(
+    model=model_name,
+    contents=scout_prompt
+)
+scout_output = scout_response.text
+
+# 3. AGENTE 2: ESSAYIST & EDITORIAL DESIGNER
+writer_prompt = f"""
+You are an "Essayist & Editorial Designer" writing in the style of The New York Times culture desk and high-end Substack essayists.
+Tone: Witty, perceptive, concise, and elegant. Absolutely avoid corporate AI buzzwords (delve, revolutionize, tapestry, landscape).
+
+Based on the research below, write today's newsletter body.
+
+RESEARCH BRIEF:
+{scout_output}
+
+STRICT HTML REQUIREMENTS:
+- Output ONLY valid raw HTML (DO NOT wrap in ```html markdown fences).
+- Start with an observational 2-3 sentence introductory hook introducing today's theme.
+- For each of the 3 stories, format as follows:
+  * <span class="pill">Category Name</span>
+  * <h2>Sharp Headline</h2>
+  * <p class="subtitle">One elegant sentence explaining the core paradox.</p>
+  * An editorial image:
+    - Story 1: <img src="[https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80)" class="story-img" alt="Editorial visual" />
+    - Story 2: <img src="[https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=800&q=80)" class="story-img" alt="Editorial visual" />
+    - Story 3: <img src="[https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80)" class="story-img" alt="Editorial visual" />
+  * 2 tight narrative paragraphs exploring the cultural tension.
+  * <div class="takeaway-box"><strong>The takeaway:</strong> The core insight in one sentence.</div>
+- End with a brief, reflective parting thought.
+"""
+
+print("-> Running Agent 2 (Essayist & Editorial Designer)...")
+writer_response = client.models.generate_content(
+    model=model_name,
+    contents=writer_prompt
+)
+
+newsletter_body_html = writer_response.text.replace("```html", "").replace("```", "").strip()
+
+# 4. PLANTILLA DE EMAIL CON TU PALETA EDITORIAL
 html_template = """<!DOCTYPE html>
 <html>
 <head>
@@ -221,7 +205,7 @@ html_template = """<!DOCTYPE html>
 
 full_email_html = html_template.replace("{{TODAY_STR}}", today_str).replace("{{NEWSLETTER_BODY}}", newsletter_body_html)
 
-# 6. ENVÍO A GMAIL
+# 5. ENVÍO A GMAIL
 gmail_user = os.environ.get("GMAIL_ADDRESS")
 gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
 
@@ -237,4 +221,4 @@ with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
     server.login(gmail_user, gmail_password)
     server.send_message(msg)
 
-print("Dispatch sent successfully!")
+print("Dispatch completed and sent successfully!")
