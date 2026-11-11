@@ -1,21 +1,8 @@
-
-- name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip' # <-- THIS LINE CACHES PACKAGES ACROSS RUNS
-          
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          name: Daily Newsletter Dispatch
+name: Daily Newsletter Dispatch
 
 on:
   schedule:
-    # Runs at 06:00 UTC every day (approx 7:00 / 8:00 AM Central Europe)
     - cron: '0 6 * * *'
-  # Allows you to test-run it manually anytime with a single click
   workflow_dispatch:
 
 jobs:
@@ -29,6 +16,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
