@@ -8,7 +8,7 @@ import markdown
 
 # 1. CONFIGURACIÓN DEL MODELO GEMINI
 gemini_llm = LLM(
-    model="gemini/gemini-2.0-flash", api_key=os.environ.get("GEMINI_API_KEY")
+    model="gemini/gemini-3.8-flash", api_key=os.environ.get("GEMINI_API_KEY")
 )
 
 search_tool = SerperDevTool()
