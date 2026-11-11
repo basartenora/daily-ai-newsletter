@@ -1,12 +1,12 @@
 import os
 import smtplib
+from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from datetime import datetime
 from crewai import Agent, Crew, LLM, Process, Task
 from crewai_tools import SerperDevTool
 
-# 1. MODELO Y HERRAMIENTAS
+# 1. CONFIGURACIÓN DEL MODELO Y HERRAMIENTA DE BÚSQUEDA
 gemini_llm = LLM(
     model="gemini/gemini-3.8-flash",
     api_key=os.environ.get("GEMINI_API_KEY")
@@ -14,44 +14,49 @@ gemini_llm = LLM(
 
 search_tool = SerperDevTool()
 
-# 2. AGENTES CON INSTRUCCIONES DE IMAGEN Y FORMATO EDITORIAL
+# 2. AGENTES OPTIMIZADOS PARA VELOCIDAD Y ENFOQUE
 researcher = Agent(
     role="Culture & AI Scout",
     goal="Find 3 compelling stories on AI shifts, cultural friction, and human psychology with direct links and image URLs.",
     backstory=(
         "You are an Intellectual Scout and Daily Trends Curator. "
         "You scout human-interest AI developments and cultural friction pieces from top publications "
-        "(Substack, The Atlantic, NYT, Wired). For each story, you collect the core idea, a memorable quote, "
-        "the verified original URL, and an image URL from the article/source when available."
+        "(Substack, The Atlantic, NYT, Wired). For each story, you extract the core paradox, a memorable quote, "
+        "the verified original URL, and an image URL when available."
     ),
     tools=[search_tool],
     llm=gemini_llm,
+    max_iter=2,             # Evita bucles infinitos de búsqueda
+    max_execution_time=90,  # Límite máximo de 90 segundos
     verbose=True,
 )
 
 writer = Agent(
     role="Essayist & Editorial Designer",
-    goal="Craft an elegant, engaging morning dispatch formatted in clean HTML ready for an email client.",
+    goal="Craft an elegant morning dispatch formatted in clean HTML ready for an email client.",
     backstory=(
         "You write in the sharp, observant style of The New York Times culture desk and high-end Substacks. "
         "Your voice is witty and conversational. You craft clear titles, brief subtitles, and format "
-        "each story with an introductory image, body paragraphs, highlighted takeaways, and clean link buttons."
+        "each story with an image (if available), engaging paragraphs, highlighted takeaways, and clean link buttons."
     ),
     llm=gemini_llm,
+    max_iter=2,
+    max_execution_time=90,
     verbose=True,
 )
 
-# 3. TAREAS
+# 3. TAREAS PRECISAS (UNA SOLA BÚSQUEDA WEB)
 research_task = Task(
     description=(
-        "Scout today's web for 3 compelling stories: 2 around AI's impact on work, thinking, and society, "
-        "and 1 about modern culture, psychology, or everyday habits. "
+        "Run ONE search query using the tool: 'site:theatlantic.com OR site:wired.com OR site:nytimes.com artificial intelligence culture essay'. "
+        "From the first results, choose the 3 most provocative stories. "
         "For each story, output:\n"
         "- Title & Provocative Angle\n"
-        "- Image URL (from the article or a high-quality relevant source)\n"
-        "- The 'So What?': 2-3 sentences on the core paradox\n"
+        "- Image URL (from the article or a reliable web image URL)\n"
+        "- The 'So What?': 2 sentences on the human tension or paradox\n"
         "- Standout Quote\n"
-        "- Source URL"
+        "- Verified Source URL\n"
+        "Do not run more than 1 search."
     ),
     expected_output="Structured research brief with verified links, quotes, and image URLs.",
     agent=researcher,
@@ -62,22 +67,22 @@ write_task = Task(
         "Write today's edition of 'Your Morning AI & Culture Dispatch'.\n"
         "Generate raw, clean HTML content (DO NOT wrap in markdown code blocks like ```html).\n"
         "Format requirements:\n"
-        "- Elegant header with issue date and subtitle.\n"
-        "- The Morning Kick: A 2-3 sentence observational hook on today's cultural current.\n"
+        "- The Morning Kick: A 2-3 sentence personal or cultural observation introducing today's theme.\n"
         "- 3 Stories: Each story MUST have:\n"
-        "  1. A category pill (e.g., 'AI & Society', 'Mind & Craft', 'Culture').\n"
-        "  2. A sharp Title (H2) and a brief 1-sentence Subtitle.\n"
-        "  3. If an image URL is provided in the research, an <img> tag with full width and rounded corners.\n"
-        "  4. 2 engaging narrative paragraphs breaking down the tension or paradox.\n"
-        "  5. A prominent Takeaway box.\n"
-        "  6. A clean, styled 'Read on [Outlet] →' button/link.\n"
-        "- Parting Thought at the bottom."
+        "  1. A category pill: <span class='pill'>AI &amp; Society</span> (or 'Mind &amp; Craft', 'Culture').\n"
+        "  2. A sharp Title: <h2>Title</h2>\n"
+        "  3. A 1-sentence Subtitle: <p class='subtitle'>One line explaining the core conflict</p>\n"
+        "  4. If an image URL exists: <img src='URL' class='story-img' alt='Story visual' />\n"
+        "  5. 2 narrative paragraphs breaking down the tension or paradox.\n"
+        "  6. A Takeaway box: <div class='takeaway-box'><strong>The takeaway:</strong> Core insight.</div>\n"
+        "  7. A read button: <a href='URL' class='read-btn'>Read full piece &rarr;</a>\n"
+        "- Parting Thought at the end."
     ),
     expected_output="Clean HTML body ready for email embedding.",
     agent=writer,
 )
 
-# 4. EJECUCIÓN
+# 4. EJECUCIÓN DEL PIPELINE MULTIAGENTE
 crew = Crew(
     agents=[researcher, writer],
     tasks=[research_task, write_task],
@@ -86,181 +91,4 @@ crew = Crew(
 )
 
 result = crew.kickoff()
-newsletter_body_html = str(result).replace("```html", "").replace("```", "").strip()
-
-# 5. PLANTILLA DE EMAIL CON TU PALETA DE COLORES (Plantilla limpia sin colisión de llaves)
-today_str = datetime.now().strftime("%A, %B %d, %Y")
-
-html_template = """<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      background-color: #FEFFE3;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      color: #255A4B;
-      line-height: 1.65;
-    }
-    .container {
-      max-width: 620px;
-      margin: 30px auto;
-      background: #FFFFFF;
-      border-radius: 18px;
-      overflow: hidden;
-      box-shadow: 0 4px 20px rgba(37, 90, 75, 0.06);
-      border: 1px solid #EAEFD2;
-    }
-    .header {
-      background: #255A4B;
-      padding: 40px 30px;
-      text-align: center;
-      color: #FEFFE3;
-    }
-    .header-tag {
-      display: inline-block;
-      background-color: #C9FF46;
-      color: #255A4B;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-      padding: 5px 12px;
-      border-radius: 20px;
-      margin-bottom: 12px;
-    }
-    .header h1 {
-      margin: 0 0 8px 0;
-      font-size: 26px;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      color: #FEFFE3;
-    }
-    .header p {
-      margin: 0;
-      font-size: 14px;
-      color: #A6FFE8;
-    }
-    .content {
-      padding: 35px 30px;
-    }
-    .intro {
-      font-size: 16px;
-      line-height: 1.7;
-      color: #255A4B;
-      padding-bottom: 25px;
-      border-bottom: 2px solid #FEFFE3;
-      margin-bottom: 30px;
-    }
-    .pill {
-      display: inline-block;
-      background-color: #A6FFE8;
-      color: #255A4B;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      padding: 4px 10px;
-      border-radius: 6px;
-      margin-bottom: 10px;
-    }
-    h2 {
-      color: #255A4B;
-      font-size: 21px;
-      margin: 8px 0 4px 0;
-      line-height: 1.3;
-      font-weight: 800;
-    }
-    .subtitle {
-      color: #4456FF;
-      font-size: 14px;
-      font-weight: 600;
-      margin: 0 0 16px 0;
-    }
-    .story-img {
-      width: 100%;
-      height: auto;
-      max-height: 280px;
-      object-fit: cover;
-      border-radius: 12px;
-      margin: 12px 0 16px 0;
-      background-color: #F0F4E8;
-    }
-    p {
-      margin: 0 0 16px 0;
-      font-size: 15px;
-    }
-    .takeaway-box {
-      background-color: #F6FAED;
-      border-left: 4px solid #34C38F;
-      padding: 12px 16px;
-      border-radius: 0 8px 8px 0;
-      margin: 18px 0;
-      font-size: 14px;
-    }
-    .takeaway-box strong {
-      color: #255A4B;
-    }
-    .read-btn {
-      display: inline-block;
-      background-color: #4456FF;
-      color: #FFFFFF !important;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 13px;
-      padding: 9px 18px;
-      border-radius: 20px;
-      margin: 10px 0 35px 0;
-    }
-    .footer {
-      background-color: #FEFFE3;
-      padding: 25px;
-      text-align: center;
-      font-size: 13px;
-      color: #255A4B;
-      border-top: 1px solid #EAEFD2;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <span class="header-tag">Daily Briefing</span>
-      <h1>Your Morning AI &amp; Culture Dispatch</h1>
-      <p>{{TODAY_STR}} &bull; A 4-minute curated read</p>
-    </div>
-    
-    <div class="content">
-      {{NEWSLETTER_BODY}}
-    </div>
-
-    <div class="footer">
-      <p style="margin: 0;">Curated daily with curious precision. Have a great day.</p>
-    </div>
-  </div>
-</body>
-</html>
-"""
-
-full_email_html = html_template.replace("{{TODAY_STR}}", today_str).replace("{{NEWSLETTER_BODY}}", newsletter_body_html)
-
-# 6. ENVÍO A GMAIL
-gmail_user = os.environ.get("GMAIL_ADDRESS")
-gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
-
-msg = MIMEMultipart("alternative")
-msg["Subject"] = f"Your Morning AI & Culture Dispatch — {today_str}"
-msg["From"] = f"Your Morning Dispatch <{gmail_user}>"
-msg["To"] = gmail_user
-
-msg.attach(MIMEText(newsletter_body_html, "plain"))
-msg.attach(MIMEText(full_email_html, "html"))
-
-with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-    server.login(gmail_user, gmail_password)
-    server.send_message(msg)
-
-print("Dispatch sent successfully with new brand styling!")
+newsletter_
