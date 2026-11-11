@@ -10,34 +10,35 @@ from google import genai
 api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 
-MODEL_NAME = "gemini-3.8-flash"
+MODELS = ["gemini-3.8-flash", "gemini-2.5-pro"]
 
-def generate_quick(prompt: str, max_retries: int = 2) -> str:
-    """Executes prompt with graceful handling for network drops without burning quota."""
-    for attempt in range(1, max_retries + 1):
-        try:
-            print(f"-> Calling {MODEL_NAME} (attempt {attempt}/{max_retries})...")
-            response = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=prompt,
-            )
-            if response and response.text:
-                return response.text
-        except Exception as e:
-            err_msg = str(e)
-            print(f"Notice on {MODEL_NAME}: {err_msg}")
+def generate_quick(prompt: str) -> str:
+    """Tries the primary model with backoff, then falls back to pro if flash is saturated."""
+    for model_name in MODELS:
+        for attempt in range(1, 3):
+            try:
+                print(f"-> Calling {model_name} (attempt {attempt}/2)...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                err_msg = str(e)
+                print(f"Notice on {model_name}: {err_msg}")
 
-            # Abort immediately if quota is explicitly exceeded
-            if "429" in err_msg or "resource_exhausted" in err_msg.lower():
-                raise e
+                # Immediate abort on hard quota exhaust
+                if "429" in err_msg or "resource_exhausted" in err_msg.lower():
+                    raise e
 
-            # Wait briefly and retry once on dropped connection or server busy
-            if attempt < max_retries:
-                time.sleep(3)
-            else:
-                raise e
+                # 503 or server disconnect: give Google 6 seconds to clear the queue
+                if "503" in err_msg or "high demand" in err_msg.lower() or "disconnected" in err_msg.lower():
+                    time.sleep(6)
+                else:
+                    break
 
-    raise RuntimeError(f"No response received from {MODEL_NAME}.")
+    raise RuntimeError("All models were temporarily unavailable. Please retry in a few moments.")
 
 today_str = datetime.now().strftime("%A, %B %d, %Y")
 
