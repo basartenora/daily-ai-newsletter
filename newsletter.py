@@ -8,7 +8,7 @@ from google import genai
 # 1. CLIENTE OFICIAL DE GOOGLE GEMINI (SIN BUCLES NI BLOQUEOS)
 api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
-model_name = "gemini-2.5-flash"
+model_name = "gemini-3.8-flash"
 
 today_str = datetime.now().strftime("%A, %B %d, %Y")
 
