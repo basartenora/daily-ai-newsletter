@@ -7,36 +7,38 @@ from email.mime.text import MIMEText
 from google import genai
 from google.genai import types
 
-# 1. CLIENTE DE GEMINI
+# 1. CLIENTE DE GEMINI Y LISTA DE MODELOS VÁLIDOS
 api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 
-MODELS = ["gemini-3.8-flash", "gemini-3-flash", "gemini-flash-latest"]
+# Modelos oficiales soportados en v1
+MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
 
 def generate_quick(prompt: str) -> str:
-    """Envía la petición con timeout estricto para no colgar el flujo."""
-    # Timeout de 30 segundos por llamada
-    config = types.GenerateContentConfig(
-        temperature=0.7,
-    )
-    
+    """Envía la petición con reintentos y modelos de respaldo válidos."""
     for model_name in MODELS:
-        try:
-            print(f"-> Calling {model_name}...")
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=config,
-            )
-            if response and response.text:
-                return response.text
-        except Exception as e:
-            print(f"Notice on {model_name}: {e}. Trying fallback...")
-            time.sleep(2)
-            continue
-            
-    raise RuntimeError("No se pudo obtener respuesta de los modelos de Gemini.")
+        for attempt in range(1, 4):
+            try:
+                print(f"-> Calling {model_name} (attempt {attempt}/3)...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                err_msg = str(e)
+                print(f"Notice on {model_name}: {err_msg}")
+                # Si hay pico de saturación (503), esperamos unos segundos antes de reintentar
+                if "503" in err_msg or "high demand" in err_msg.lower():
+                    wait = attempt * 3
+                    print(f"Waiting {wait}s due to high demand...")
+                    time.sleep(wait)
+                else:
+                    # Si el modelo no existe o da otro error, saltamos al siguiente modelo de la lista
+                    break
 
+    raise RuntimeError("No se pudo obtener respuesta de los modelos de Gemini.")
 today_str = datetime.now().strftime("%A, %B %d, %Y")
 
 # 2. PASO 1: Culture & AI Scout
