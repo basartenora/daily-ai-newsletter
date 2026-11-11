@@ -2,13 +2,18 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from crewai import Agent, Crew, Process, Task
+from crewai import Agent, Crew, LLM, Process, Task
 from crewai_tools import SerperDevTool
 import markdown
 
-# 1. SETUP TOOLS & AGENTS
+# 1. CONFIGURACIÓN DEL MODELO GEMINI
+gemini_llm = LLM(
+    model="gemini/gemini-1.5-flash", api_key=os.environ.get("GEMINI_API_KEY")
+)
+
 search_tool = SerperDevTool()
 
+# 2. AGENTES (Se les asigna el modelo Gemini explícitamente)
 researcher = Agent(
     role="Culture & AI Scout",
     goal="Find 3-4 compelling stories on AI shifts, cultural friction, and human psychology with direct links.",
@@ -18,6 +23,7 @@ researcher = Agent(
         "You always verify links and extract direct quotes and core takeaways."
     ),
     tools=[search_tool],
+    llm=gemini_llm,
     verbose=True,
 )
 
@@ -29,10 +35,11 @@ writer = Agent(
         "Your tone is witty, observant, and engaging. You ban AI buzzwords like 'delve' or 'game-changer', "
         "and format every item with bold hooks, bulleted takeaways, and links to original sources."
     ),
+    llm=gemini_llm,
     verbose=True,
 )
 
-# 2. DEFINE TASKS
+# 3. TAREAS
 research_task = Task(
     description=(
         "Scout today's web for 3-4 stories: 2-3 around AI's impact on work, writing, and society, "
@@ -52,7 +59,7 @@ write_task = Task(
     agent=writer,
 )
 
-# 3. RUN THE CREW
+# 4. CREW
 crew = Crew(
     agents=[researcher, writer],
     tasks=[research_task, write_task],
@@ -63,7 +70,7 @@ crew = Crew(
 result = crew.kickoff()
 content_str = str(result)
 
-# 4. SEND TO GMAIL
+# 5. ENVÍO POR GMAIL
 gmail_user = os.environ.get("GMAIL_ADDRESS")
 gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
 
