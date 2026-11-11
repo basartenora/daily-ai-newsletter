@@ -1,14 +1,45 @@
 import os
 import smtplib
+import time
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from google import genai
+from google.genai.errors import ServerError
 
-# 1. CLIENTE OFICIAL DE GOOGLE GEMINI (SIN BUCLES NI BLOQUEOS)
+# 1. CLIENTE OFICIAL DE GOOGLE GEMINI
 api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
-model_name = "gemini-3.8-flash"
+
+PRIMARY_MODEL = "gemini-3.8-flash"
+FALLBACK_MODELS = ["gemini-3-flash", "gemini-flash-latest"]
+
+def generate_with_retry(prompt: str, max_retries: int = 3) -> str:
+    """Envía un prompt a Gemini manejando saturación temporal (503) y fallbacks."""
+    models_to_try = [PRIMARY_MODEL] + FALLBACK_MODELS
+
+    for current_model in models_to_try:
+        for attempt in range(1, max_retries + 1):
+            try:
+                print(f"-> Calling {current_model} (attempt {attempt}/{max_retries})...")
+                response = client.models.generate_content(
+                    model=current_model,
+                    contents=prompt
+                )
+                return response.text
+            except ServerError as e:
+                # Error 503 / High demand: esperar antes de reintentar
+                if "503" in str(e) or "high demand" in str(e).lower():
+                    wait_time = attempt * 4
+                    print(f"High demand on {current_model}. Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    raise e
+            except Exception as e:
+                print(f"Error on {current_model}: {e}")
+                break
+
+    raise RuntimeError("All models and retries were exhausted.")
 
 today_str = datetime.now().strftime("%A, %B %d, %Y")
 
@@ -29,12 +60,8 @@ For each story, provide:
 - A memorable, punchy takeaway insight
 """
 
-print("-> Running Agent 1 (Culture & AI Scout)...")
-scout_response = client.models.generate_content(
-    model=model_name,
-    contents=scout_prompt
-)
-scout_output = scout_response.text
+print("Starting Agent 1 (Culture & AI Scout)...")
+scout_output = generate_with_retry(scout_prompt)
 
 # 3. AGENTE 2: ESSAYIST & EDITORIAL DESIGNER
 writer_prompt = f"""
@@ -62,13 +89,10 @@ STRICT HTML REQUIREMENTS:
 - End with a brief, reflective parting thought.
 """
 
-print("-> Running Agent 2 (Essayist & Editorial Designer)...")
-writer_response = client.models.generate_content(
-    model=model_name,
-    contents=writer_prompt
-)
+print("Starting Agent 2 (Essayist & Editorial Designer)...")
+writer_output = generate_with_retry(writer_prompt)
 
-newsletter_body_html = writer_response.text.replace("```html", "").replace("```", "").strip()
+newsletter_body_html = writer_output.replace("```html", "").replace("```", "").strip()
 
 # 4. PLANTILLA DE EMAIL CON TU PALETA EDITORIAL
 html_template = """<!DOCTYPE html>
@@ -221,4 +245,4 @@ with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
     server.login(gmail_user, gmail_password)
     server.send_message(msg)
 
-print("Dispatch completed and sent successfully!")
+print("Dispatch sent successfully!")
