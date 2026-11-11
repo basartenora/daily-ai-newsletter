@@ -7,38 +7,37 @@ from email.mime.text import MIMEText
 from google import genai
 from google.genai import types
 
-# 1. CLIENTE DE GEMINI Y LISTA DE MODELOS VÁLIDOS
+# 1. CLIENTE DE GEMINI CON EL MODELO OFICIAL ACTIVO
 api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 
-# Modelos oficiales soportados en v1
-MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+MODEL_NAME = "gemini-3.8-flash"
 
-def generate_quick(prompt: str) -> str:
-    """Envía la petición con reintentos y modelos de respaldo válidos."""
-    for model_name in MODELS:
-        for attempt in range(1, 4):
-            try:
-                print(f"-> Calling {model_name} (attempt {attempt}/3)...")
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                if response and response.text:
-                    return response.text
-            except Exception as e:
-                err_msg = str(e)
-                print(f"Notice on {model_name}: {err_msg}")
-                # Si hay pico de saturación (503), esperamos unos segundos antes de reintentar
-                if "503" in err_msg or "high demand" in err_msg.lower():
-                    wait = attempt * 3
-                    print(f"Waiting {wait}s due to high demand...")
-                    time.sleep(wait)
-                else:
-                    # Si el modelo no existe o da otro error, saltamos al siguiente modelo de la lista
-                    break
+def generate_quick(prompt: str, max_retries: int = 5) -> str:
+    """Envía la petición a gemini-3.8-flash con tolerancia a saturación (503)."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"-> Calling {MODEL_NAME} (attempt {attempt}/{max_retries})...")
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+            )
+            if response and response.text:
+                return response.text
+        except Exception as e:
+            err_msg = str(e)
+            print(f"Notice on {MODEL_NAME}: {err_msg}")
+            
+            # Si el servidor está en pico de demanda (503), esperamos antes de reintentar
+            if "503" in err_msg or "high demand" in err_msg.lower():
+                wait_seconds = attempt * 5  # Espera 5s, 10s, 15s, 20s...
+                print(f"Server busy. Waiting {wait_seconds}s before retrying...")
+                time.sleep(wait_seconds)
+            else:
+                # Si es un error fatal distinto, lo lanzamos de inmediato
+                raise e
 
-    raise RuntimeError("No se pudo obtener respuesta de los modelos de Gemini.")
+    raise RuntimeError(f"Exhausted all {max_retries} retries on {MODEL_NAME}.")
 today_str = datetime.now().strftime("%A, %B %d, %Y")
 
 # 2. PASO 1: Culture & AI Scout
