@@ -5,96 +5,86 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from google import genai
-from google.genai.errors import ServerError
+from google.genai import types
 
-# 1. CLIENTE OFICIAL DE GOOGLE GEMINI
+# 1. CLIENTE DE GEMINI
 api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 
-PRIMARY_MODEL = "gemini-3.8-flash"
-FALLBACK_MODELS = ["gemini-3-flash", "gemini-flash-latest"]
+MODELS = ["gemini-3.8-flash", "gemini-3-flash", "gemini-flash-latest"]
 
-def generate_with_retry(prompt: str, max_retries: int = 3) -> str:
-    """Envía un prompt a Gemini manejando saturación temporal (503) y fallbacks."""
-    models_to_try = [PRIMARY_MODEL] + FALLBACK_MODELS
-
-    for current_model in models_to_try:
-        for attempt in range(1, max_retries + 1):
-            try:
-                print(f"-> Calling {current_model} (attempt {attempt}/{max_retries})...")
-                response = client.models.generate_content(
-                    model=current_model,
-                    contents=prompt
-                )
+def generate_quick(prompt: str) -> str:
+    """Envía la petición con timeout estricto para no colgar el flujo."""
+    # Timeout de 30 segundos por llamada
+    config = types.GenerateContentConfig(
+        temperature=0.7,
+    )
+    
+    for model_name in MODELS:
+        try:
+            print(f"-> Calling {model_name}...")
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=config,
+            )
+            if response and response.text:
                 return response.text
-            except ServerError as e:
-                # Error 503 / High demand: esperar antes de reintentar
-                if "503" in str(e) or "high demand" in str(e).lower():
-                    wait_time = attempt * 4
-                    print(f"High demand on {current_model}. Retrying in {wait_time}s...")
-                    time.sleep(wait_time)
-                else:
-                    raise e
-            except Exception as e:
-                print(f"Error on {current_model}: {e}")
-                break
-
-    raise RuntimeError("All models and retries were exhausted.")
+        except Exception as e:
+            print(f"Notice on {model_name}: {e}. Trying fallback...")
+            time.sleep(2)
+            continue
+            
+    raise RuntimeError("No se pudo obtener respuesta de los modelos de Gemini.")
 
 today_str = datetime.now().strftime("%A, %B %d, %Y")
 
-# 2. AGENTE 1: CULTURE & AI SCOUT
+# 2. PASO 1: Culture & AI Scout
 scout_prompt = f"""
-You are the "Culture & AI Scout", an intellectual trend spotter and cultural curator for a prestigious daily dispatch.
-Today is {today_str}.
+You are the Culture & AI Scout for a prestigious daily dispatch. Today is {today_str}.
+Suggest 3 distinct cultural dilemmas emerging from AI adoption:
+1. Story 1: Impact on human creative craft, writing, or habits.
+2. Story 2: Workplace or institutional tension where human judgment meets automation.
+3. Story 3: Modern digital habit or psychological shift.
 
-Curate 3 distinct story concepts examining modern life and AI:
-1. Story 1: AI's subtle psychological or behavioral impact on human creativity and personal craft.
-2. Story 2: A workplace or institutional tension where human judgment clashes with automation.
-3. Story 3: A cultural curiosity, modern digital habit, or intellectual shift.
-
-For each story, provide:
-- Provocative title and angle
-- The core paradox or human conflict
-- Visual theme keyword (e.g., 'writer at dusk', 'brutalist office', 'smartphones in darkness')
-- A memorable, punchy takeaway insight
+For each, provide:
+- Headline
+- One-sentence subtitle on the core paradox
+- Core tension in 2 sentences
+- The takeaway insight in 1 sentence
 """
 
-print("Starting Agent 1 (Culture & AI Scout)...")
-scout_output = generate_with_retry(scout_prompt)
+print("Starting Scout step...")
+scout_output = generate_quick(scout_prompt)
 
-# 3. AGENTE 2: ESSAYIST & EDITORIAL DESIGNER
+# 3. PASO 2: Essayist & Designer
 writer_prompt = f"""
-You are an "Essayist & Editorial Designer" writing in the style of The New York Times culture desk and high-end Substack essayists.
-Tone: Witty, perceptive, concise, and elegant. Absolutely avoid corporate AI buzzwords (delve, revolutionize, tapestry, landscape).
+You are an Essayist & Editorial Designer writing in the style of The New York Times culture desk and high-end Substack essays.
+Tone: Witty, perceptive, concise. No corporate AI buzzwords (never use delve, tapestry, landscape).
 
-Based on the research below, write today's newsletter body.
-
-RESEARCH BRIEF:
+Based on these notes:
 {scout_output}
 
-STRICT HTML REQUIREMENTS:
-- Output ONLY valid raw HTML (DO NOT wrap in ```html markdown fences).
-- Start with an observational 2-3 sentence introductory hook introducing today's theme.
-- For each of the 3 stories, format as follows:
-  * <span class="pill">Category Name</span>
-  * <h2>Sharp Headline</h2>
-  * <p class="subtitle">One elegant sentence explaining the core paradox.</p>
+Generate ONLY valid raw HTML (no markdown code blocks, no ```html):
+- A 2-sentence opening hook on today's cultural current.
+- For each of the 3 stories:
+  * <span class="pill">CATEGORY</span>
+  * <h2>Headline</h2>
+  * <p class="subtitle">Subtitle</p>
   * An editorial image:
-    - Story 1: <img src="[https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80)" class="story-img" alt="Editorial visual" />
-    - Story 2: <img src="[https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=800&q=80)" class="story-img" alt="Editorial visual" />
-    - Story 3: <img src="[https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80)" class="story-img" alt="Editorial visual" />
-  * 2 tight narrative paragraphs exploring the cultural tension.
-  * <div class="takeaway-box"><strong>The takeaway:</strong> The core insight in one sentence.</div>
-- End with a brief, reflective parting thought.
+    - Story 1: <img src="[https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80)" class="story-img" alt="Visual" />
+    - Story 2: <img src="[https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=800&q=80)" class="story-img" alt="Visual" />
+    - Story 3: <img src="[https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80)" class="story-img" alt="Visual" />
+  * 2 tight narrative paragraphs.
+  * <div class="takeaway-box"><strong>The takeaway:</strong> Core insight.</div>
+- A brief parting thought.
 """
 
-print("Starting Agent 2 (Essayist & Editorial Designer)...")
-writer_output = generate_with_retry(writer_prompt)
-
+print("Starting Writer step...")
+writer_output = generate_quick(writer_prompt)
 newsletter_body_html = writer_output.replace("```html", "").replace("```", "").strip()
 
-# 4. PLANTILLA DE EMAIL CON TU PALETA EDITORIAL
+# 4. PLANTILLA HTML CON TU PALETA
 html_template = """<!DOCTYPE html>
 <html>
 <head>
@@ -229,7 +219,7 @@ html_template = """<!DOCTYPE html>
 
 full_email_html = html_template.replace("{{TODAY_STR}}", today_str).replace("{{NEWSLETTER_BODY}}", newsletter_body_html)
 
-# 5. ENVÍO A GMAIL
+# 5. ENVÍO A GMAIL CON TIMEOUT EXPLÍCITO (MÁXIMO 15 SEGUNDOS)
 gmail_user = os.environ.get("GMAIL_ADDRESS")
 gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
 
@@ -241,8 +231,9 @@ msg["To"] = gmail_user
 msg.attach(MIMEText(newsletter_body_html, "plain"))
 msg.attach(MIMEText(full_email_html, "html"))
 
-with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+print("Sending email to Gmail...")
+with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
     server.login(gmail_user, gmail_password)
     server.send_message(msg)
 
-print("Dispatch sent successfully!")
+print("Dispatch completed and sent successfully!")
