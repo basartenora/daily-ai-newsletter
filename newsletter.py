@@ -1,43 +1,33 @@
 import os
 import smtplib
-import time
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from google import genai
-from google.genai import types
 
-# 1. CLIENTE DE GEMINI CON EL MODELO OFICIAL ACTIVO
+# 1. CLIENTE DE GEMINI
 api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 
 MODEL_NAME = "gemini-3.8-flash"
 
-def generate_quick(prompt: str, max_retries: int = 5) -> str:
-    """Envía la petición a gemini-3.8-flash con tolerancia a saturación (503)."""
-    for attempt in range(1, max_retries + 1):
-        try:
-            print(f"-> Calling {MODEL_NAME} (attempt {attempt}/{max_retries})...")
-            response = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=prompt,
-            )
-            if response and response.text:
-                return response.text
-        except Exception as e:
-            err_msg = str(e)
-            print(f"Notice on {MODEL_NAME}: {err_msg}")
-            
-            # Si el servidor está en pico de demanda (503), esperamos antes de reintentar
-            if "503" in err_msg or "high demand" in err_msg.lower():
-                wait_seconds = attempt * 5  # Espera 5s, 10s, 15s, 20s...
-                print(f"Server busy. Waiting {wait_seconds}s before retrying...")
-                time.sleep(wait_seconds)
-            else:
-                # Si es un error fatal distinto, lo lanzamos de inmediato
-                raise e
+def generate_quick(prompt: str) -> str:
+    """Ejecuta la llamada de forma limpia sin reintentos redundantes para no agotar la cuota."""
+    try:
+        print(f"-> Calling {MODEL_NAME}...")
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+        )
+        if response and response.text:
+            return response.text
+    except Exception as e:
+        err_msg = str(e)
+        print(f"Error on {MODEL_NAME}: {err_msg}")
+        raise e
 
-    raise RuntimeError(f"Exhausted all {max_retries} retries on {MODEL_NAME}.")
+    raise RuntimeError(f"No response from {MODEL_NAME}.")
+
 today_str = datetime.now().strftime("%A, %B %d, %Y")
 
 # 2. PASO 1: Culture & AI Scout
@@ -85,7 +75,7 @@ print("Starting Writer step...")
 writer_output = generate_quick(writer_prompt)
 newsletter_body_html = writer_output.replace("```html", "").replace("```", "").strip()
 
-# 4. PLANTILLA HTML CON TU PALETA
+# 4. PLANTILLA HTML CON TU PALETA EDITORIAL
 html_template = """<!DOCTYPE html>
 <html>
 <head>
@@ -220,7 +210,7 @@ html_template = """<!DOCTYPE html>
 
 full_email_html = html_template.replace("{{TODAY_STR}}", today_str).replace("{{NEWSLETTER_BODY}}", newsletter_body_html)
 
-# 5. ENVÍO A GMAIL CON TIMEOUT EXPLÍCITO (MÁXIMO 15 SEGUNDOS)
+# 5. ENVÍO A GMAIL
 gmail_user = os.environ.get("GMAIL_ADDRESS")
 gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
 
