@@ -1,4 +1,15 @@
-name: Daily Newsletter Dispatch
+
+- name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip' # <-- THIS LINE CACHES PACKAGES ACROSS RUNS
+          
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          name: Daily Newsletter Dispatch
 
 on:
   schedule:
