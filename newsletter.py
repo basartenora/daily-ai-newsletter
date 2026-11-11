@@ -1,36 +1,47 @@
 import os
 import smtplib
+import time
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from google import genai
 
-# 1. CLIENTE DE GEMINI
+# 1. CLIENT INITIALIZATION & RESILIENT CALL SETUP
 api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 
 MODEL_NAME = "gemini-3.8-flash"
 
-def generate_quick(prompt: str) -> str:
-    """Ejecuta la llamada de forma limpia sin reintentos redundantes para no agotar la cuota."""
-    try:
-        print(f"-> Calling {MODEL_NAME}...")
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-        )
-        if response and response.text:
-            return response.text
-    except Exception as e:
-        err_msg = str(e)
-        print(f"Error on {MODEL_NAME}: {err_msg}")
-        raise e
+def generate_quick(prompt: str, max_retries: int = 2) -> str:
+    """Executes prompt with graceful handling for network drops without burning quota."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"-> Calling {MODEL_NAME} (attempt {attempt}/{max_retries})...")
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+            )
+            if response and response.text:
+                return response.text
+        except Exception as e:
+            err_msg = str(e)
+            print(f"Notice on {MODEL_NAME}: {err_msg}")
 
-    raise RuntimeError(f"No response from {MODEL_NAME}.")
+            # Abort immediately if quota is explicitly exceeded
+            if "429" in err_msg or "resource_exhausted" in err_msg.lower():
+                raise e
+
+            # Wait briefly and retry once on dropped connection or server busy
+            if attempt < max_retries:
+                time.sleep(3)
+            else:
+                raise e
+
+    raise RuntimeError(f"No response received from {MODEL_NAME}.")
 
 today_str = datetime.now().strftime("%A, %B %d, %Y")
 
-# 2. PASO 1: Culture & AI Scout
+# 2. AGENT 1: CULTURE & AI SCOUT
 scout_prompt = f"""
 You are the Culture & AI Scout for a prestigious daily dispatch. Today is {today_str}.
 Suggest 3 distinct cultural dilemmas emerging from AI adoption:
@@ -48,7 +59,7 @@ For each, provide:
 print("Starting Scout step...")
 scout_output = generate_quick(scout_prompt)
 
-# 3. PASO 2: Essayist & Designer
+# 3. AGENT 2: ESSAYIST & EDITORIAL DESIGNER
 writer_prompt = f"""
 You are an Essayist & Editorial Designer writing in the style of The New York Times culture desk and high-end Substack essays.
 Tone: Witty, perceptive, concise. No corporate AI buzzwords (never use delve, tapestry, landscape).
@@ -75,7 +86,7 @@ print("Starting Writer step...")
 writer_output = generate_quick(writer_prompt)
 newsletter_body_html = writer_output.replace("```html", "").replace("```", "").strip()
 
-# 4. PLANTILLA HTML CON TU PALETA EDITORIAL
+# 4. BRANDED HTML CONTAINER TEMPLATE
 html_template = """<!DOCTYPE html>
 <html>
 <head>
@@ -210,7 +221,7 @@ html_template = """<!DOCTYPE html>
 
 full_email_html = html_template.replace("{{TODAY_STR}}", today_str).replace("{{NEWSLETTER_BODY}}", newsletter_body_html)
 
-# 5. ENVÍO A GMAIL
+# 5. DISPATCH VIA GMAIL SMTP
 gmail_user = os.environ.get("GMAIL_ADDRESS")
 gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
 
