@@ -10,7 +10,7 @@ from google import genai
 api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 
-MODELS = ["gemini-3.8-flash", "gemini-2.5-pro"]
+MODELS = ["gemini-3.8-flash", "gemini-3.1-pro-preview"]
 
 def generate_quick(prompt: str) -> str:
     """Intenta el modelo principal con espera y recurre a Pro si Flash está saturado."""
