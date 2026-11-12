@@ -6,14 +6,14 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from google import genai
 
-# 1. CLIENT INITIALIZATION & RESILIENT CALL SETUP
+# 1. INICIALIZACIÓN DEL CLIENTE Y CONFIGURACIÓN DE RESILIENCIA
 api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 
 MODELS = ["gemini-3.8-flash", "gemini-2.5-pro"]
 
 def generate_quick(prompt: str) -> str:
-    """Tries the primary model with backoff, then falls back to pro if flash is saturated."""
+    """Intenta el modelo principal con espera y recurre a Pro si Flash está saturado."""
     for model_name in MODELS:
         for attempt in range(1, 3):
             try:
@@ -28,21 +28,21 @@ def generate_quick(prompt: str) -> str:
                 err_msg = str(e)
                 print(f"Notice on {model_name}: {err_msg}")
 
-                # Immediate abort on hard quota exhaust
+                # Aborta de inmediato si la cuota diaria se agotó (429)
                 if "429" in err_msg or "resource_exhausted" in err_msg.lower():
                     raise e
 
-                # 503 or server disconnect: give Google 6 seconds to clear the queue
+                # Si hay saturación (503) o desconexión, espera 6 segundos antes de reintentar
                 if "503" in err_msg or "high demand" in err_msg.lower() or "disconnected" in err_msg.lower():
                     time.sleep(6)
                 else:
                     break
 
-    raise RuntimeError("All models were temporarily unavailable. Please retry in a few moments.")
+    raise RuntimeError("Todos los modelos estuvieron temporalmente no disponibles.")
 
 today_str = datetime.now().strftime("%A, %B %d, %Y")
 
-# 2. AGENT 1: CULTURE & AI SCOUT
+# 2. AGENTE 1: CULTURE & AI SCOUT
 scout_prompt = f"""
 You are the Culture & AI Scout for a prestigious daily dispatch. Today is {today_str}.
 Suggest 3 distinct cultural dilemmas emerging from AI adoption:
@@ -60,7 +60,7 @@ For each, provide:
 print("Starting Scout step...")
 scout_output = generate_quick(scout_prompt)
 
-# 3. AGENT 2: ESSAYIST & EDITORIAL DESIGNER
+# 3. AGENTE 2: ESSAYIST & EDITORIAL DESIGNER
 writer_prompt = f"""
 You are an Essayist & Editorial Designer writing in the style of The New York Times culture desk and high-end Substack essays.
 Tone: Witty, perceptive, concise. No corporate AI buzzwords (never use delve, tapestry, landscape).
@@ -84,159 +84,4 @@ Generate ONLY valid raw HTML (no markdown code blocks, no ```html):
 """
 
 print("Starting Writer step...")
-writer_output = generate_quick(writer_prompt)
-newsletter_body_html = writer_output.replace("```html", "").replace("```", "").strip()
-
-# 4. BRANDED HTML CONTAINER TEMPLATE
-html_template = """<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      background-color: #FEFFE3;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      color: #255A4B;
-      line-height: 1.65;
-    }
-    .container {
-      max-width: 620px;
-      margin: 30px auto;
-      background: #FFFFFF;
-      border-radius: 18px;
-      overflow: hidden;
-      box-shadow: 0 4px 20px rgba(37, 90, 75, 0.06);
-      border: 1px solid #EAEFD2;
-    }
-    .header {
-      background: #255A4B;
-      padding: 40px 30px;
-      text-align: center;
-      color: #FEFFE3;
-    }
-    .header-tag {
-      display: inline-block;
-      background-color: #C9FF46;
-      color: #255A4B;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-      padding: 5px 12px;
-      border-radius: 20px;
-      margin-bottom: 12px;
-    }
-    .header h1 {
-      margin: 0 0 8px 0;
-      font-size: 26px;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      color: #FEFFE3;
-    }
-    .header p {
-      margin: 0;
-      font-size: 14px;
-      color: #A6FFE8;
-    }
-    .content {
-      padding: 35px 30px;
-    }
-    .pill {
-      display: inline-block;
-      background-color: #A6FFE8;
-      color: #255A4B;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      padding: 4px 10px;
-      border-radius: 6px;
-      margin-bottom: 10px;
-    }
-    h2 {
-      color: #255A4B;
-      font-size: 21px;
-      margin: 8px 0 4px 0;
-      line-height: 1.3;
-      font-weight: 800;
-    }
-    .subtitle {
-      color: #4456FF;
-      font-size: 14px;
-      font-weight: 600;
-      margin: 0 0 16px 0;
-    }
-    .story-img {
-      width: 100%;
-      height: 240px;
-      object-fit: cover;
-      border-radius: 12px;
-      margin: 12px 0 18px 0;
-      display: block;
-    }
-    p {
-      margin: 0 0 16px 0;
-      font-size: 15px;
-    }
-    .takeaway-box {
-      background-color: #F6FAED;
-      border-left: 4px solid #34C38F;
-      padding: 12px 16px;
-      border-radius: 0 8px 8px 0;
-      margin: 20px 0 35px 0;
-      font-size: 14px;
-    }
-    .takeaway-box strong {
-      color: #255A4B;
-    }
-    .footer {
-      background-color: #FEFFE3;
-      padding: 25px;
-      text-align: center;
-      font-size: 13px;
-      color: #255A4B;
-      border-top: 1px solid #EAEFD2;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <span class="header-tag">Daily Briefing</span>
-      <h1>Your Morning AI &amp; Culture Dispatch</h1>
-      <p>{{TODAY_STR}} &bull; A 4-minute curated read</p>
-    </div>
-    <div class="content">
-      {{NEWSLETTER_BODY}}
-    </div>
-    <div class="footer">
-      <p style="margin: 0;">Curated daily with curious precision. Have a great day.</p>
-    </div>
-  </div>
-</body>
-</html>
-"""
-
-full_email_html = html_template.replace("{{TODAY_STR}}", today_str).replace("{{NEWSLETTER_BODY}}", newsletter_body_html)
-
-# 5. DISPATCH VIA GMAIL SMTP
-gmail_user = os.environ.get("GMAIL_ADDRESS")
-gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
-
-msg = MIMEMultipart("alternative")
-msg["Subject"] = f"☕ Your Morning AI & Culture Dispatch — {today_str}"
-msg["From"] = f"Your Morning Dispatch <{gmail_user}>"
-msg["To"] = gmail_user
-
-msg.attach(MIMEText(newsletter_body_html, "plain"))
-msg.attach(MIMEText(full_email_html, "html"))
-
-print("Sending email to Gmail...")
-with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
-    server.login(gmail_user, gmail_password)
-    server.send_message(msg)
-
-print("Dispatch completed and sent successfully!")
+writer_output = generate_quick(writer
