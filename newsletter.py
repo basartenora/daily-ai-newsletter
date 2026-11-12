@@ -5,19 +5,40 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from google import genai
+from google.genai import types
 
-# 1. INICIALIZACIÓN DEL CLIENTE Y CONFIGURACIÓN DE RESILIENCIA
+# 1. CLIENTE CONFIGURADO EN V1BETA (SOPORTA MODELOS ESTABLES Y PREVIEW)
 api_key = os.environ.get("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key)
+client = genai.Client(
+    api_key=api_key,
+    http_options=types.HttpOptions(api_version="v1beta")
+)
 
-MODELS = ["gemini-3.8-flash", "gemini-3.1-pro-preview"]
+def get_available_models() -> list[str]:
+    """Descubre dinámicamente qué modelos activos tiene tu API Key."""
+    discovered = []
+    try:
+        for m in client.models.list():
+            name = m.name.replace("models/", "")
+            if "gemini" in name and "embedding" not in name and "vision" not in name:
+                discovered.append(name)
+    except Exception as e:
+        print(f"No se pudo listar modelos dinámicamente: {e}")
 
-def generate_quick(prompt: str) -> str:
-    """Intenta el modelo principal con espera y recurre a Pro si Flash está saturado."""
-    for model_name in MODELS:
-        for attempt in range(1, 3):
+    # Priorizamos gemini-3.8-flash y cualquier variante gemini-3 disponible
+    preferred = ["gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-3.8-pro"]
+    ordered = [m for m in preferred if m in discovered]
+    others = [m for m in discovered if m not in ordered and ("3." in m or "flash" in m)]
+    
+    final_list = ordered + others
+    return final_list if final_list else ["gemini-3.8-flash", "gemini-3.1-pro-preview"]
+
+def generate_resilient(prompt: str, models: list[str]) -> str:
+    """Prueba los modelos disponibles con backoff progresivo para absorber picos 503."""
+    for model_name in models:
+        for attempt in range(1, 4):
             try:
-                print(f"-> Calling {model_name} (attempt {attempt}/2)...")
+                print(f"-> Calling {model_name} (attempt {attempt}/3)...")
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
@@ -29,14 +50,19 @@ def generate_quick(prompt: str) -> str:
                 print(f"Notice on {model_name}: {err_msg}")
 
                 if "429" in err_msg or "resource_exhausted" in err_msg.lower():
-                    raise e
+                    raise RuntimeError("Cuota diaria agotada (429). Espera al reseteo o usa otra clave.")
 
                 if "503" in err_msg or "high demand" in err_msg.lower() or "disconnected" in err_msg.lower():
-                    time.sleep(6)
+                    wait_sec = attempt * 8  # 8s, 16s, 24s
+                    print(f"Server busy. Waiting {wait_sec}s...")
+                    time.sleep(wait_sec)
                 else:
                     break
 
-    raise RuntimeError("Todos los modelos estuvieron temporalmente no disponibles.")
+    raise RuntimeError("Todos los modelos disponibles estuvieron saturados tras varios reintentos.")
+
+ACTIVE_MODELS = get_available_models()
+print(f"Detected active models for this key: {ACTIVE_MODELS}")
 
 today_str = datetime.now().strftime("%A, %B %d, %Y")
 
@@ -56,7 +82,7 @@ For each, provide:
 """
 
 print("Starting Scout step...")
-scout_output = generate_quick(scout_prompt)
+scout_output = generate_resilient(scout_prompt, ACTIVE_MODELS)
 
 # 3. AGENTE 2: ESSAYIST & EDITORIAL DESIGNER
 writer_prompt = f"""
@@ -82,7 +108,7 @@ Generate ONLY valid raw HTML (no markdown code blocks, no ```html):
 """
 
 print("Starting Writer step...")
-writer_output = generate_quick(writer_prompt)
+writer_output = generate_resilient(writer_prompt, ACTIVE_MODELS)
 newsletter_body_html = writer_output.replace("```html", "").replace("```", "").strip()
 
 # 4. PLANTILLA HTML CON PALETA EDITORIAL
