@@ -18,20 +18,30 @@ client = genai.Client(
 
 def get_available_models() -> list[str]:
     discovered = []
+    excluded_keywords = (
+        "embedding", "vision", "live", "translate", "audio",
+        "tts", "image", "robotics", "veo", "imagen"
+    )
     try:
         for m in client.models.list():
             name = m.name.replace("models/", "")
-            if "gemini" in name and "embedding" not in name and "vision" not in name:
+            if "gemini" in name and not any(kw in name.lower() for kw in excluded_keywords):
                 discovered.append(name)
     except Exception as e:
         print(f"No se pudo listar modelos dinámicamente: {e}")
 
-    preferred = ["gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-3.8-pro"]
+    preferred = [
+        "gemini-2.5-flash",
+        "gemini-3.8-flash",
+        "gemini-3.1-pro-preview",
+        "gemini-2.5-pro",
+        "gemini-2.0-flash"
+    ]
     ordered = [m for m in preferred if m in discovered]
-    others = [m for m in discovered if m not in ordered and ("3." in m or "flash" in m)]
+    others = [m for m in discovered if m not in ordered and ("flash" in m or "pro" in m)]
     
     final_list = ordered + others
-    return final_list if final_list else ["gemini-3.8-flash", "gemini-3.1-pro-preview"]
+    return final_list if final_list else ["gemini-2.5-flash", "gemini-2.5-pro"]
 
 def verify_url(url: str) -> bool:
     """Comprueba que la URL sea accesible y no devuelva un 404."""
