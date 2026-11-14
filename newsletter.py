@@ -1,13 +1,15 @@
 import os
+import re
 import smtplib
 import time
+import urllib.request
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from google import genai
 from google.genai import types
 
-# 1. CLIENTE CONFIGURADO EN V1BETA (SOPORTA MODELOS ESTABLES Y PREVIEW)
+# 1. CLIENTE CONFIGURADO EN V1BETA
 api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(
     api_key=api_key,
@@ -15,7 +17,6 @@ client = genai.Client(
 )
 
 def get_available_models() -> list[str]:
-    """Descubre dinámicamente qué modelos activos tiene tu API Key."""
     discovered = []
     try:
         for m in client.models.list():
@@ -25,7 +26,6 @@ def get_available_models() -> list[str]:
     except Exception as e:
         print(f"No se pudo listar modelos dinámicamente: {e}")
 
-    # Priorizamos gemini-3.8-flash y cualquier variante gemini-3 disponible
     preferred = ["gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-3.8-pro"]
     ordered = [m for m in preferred if m in discovered]
     others = [m for m in discovered if m not in ordered and ("3." in m or "flash" in m)]
@@ -33,18 +33,56 @@ def get_available_models() -> list[str]:
     final_list = ordered + others
     return final_list if final_list else ["gemini-3.8-flash", "gemini-3.1-pro-preview"]
 
-def generate_resilient(prompt: str, models: list[str]) -> str:
-    """Prueba los modelos disponibles con backoff progresivo para absorber picos 503."""
+def verify_url(url: str) -> bool:
+    """Comprueba que la URL sea accesible y no devuelva un 404."""
+    if not url or not url.startswith("http"):
+        return False
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; DispatchBot/1.0)"}
+        )
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            return resp.status < 400
+    except urllib.error.HTTPError as e:
+        return e.code in (401, 403)
+    except Exception:
+        return False
+
+def generate_resilient(prompt: str, models: list[str], use_search: bool = False, temp: float = 0.3) -> str:
+    config = types.GenerateContentConfig(
+        tools=[types.Tool(google_search=types.GoogleSearch())] if use_search else None,
+        temperature=temp
+    )
+
     for model_name in models:
         for attempt in range(1, 4):
             try:
-                print(f"-> Calling {model_name} (attempt {attempt}/3)...")
+                print(f"-> Calling {model_name} (search={use_search}, attempt {attempt}/3)...")
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
+                    config=config
                 )
+                
                 if response and response.text:
-                    return response.text
+                    text_output = response.text
+                    
+                    if use_search and response.candidates:
+                        candidate = response.candidates[0]
+                        if getattr(candidate, "grounding_metadata", None):
+                            chunks = getattr(candidate.grounding_metadata, "grounding_chunks", []) or []
+                            verified_links = []
+                            for chunk in chunks:
+                                web = getattr(chunk, "web", None)
+                                if web and getattr(web, "uri", None):
+                                    title = getattr(web, "title", "Source")
+                                    verified_links.append(f"- {title}: {web.uri}")
+                            
+                            if verified_links:
+                                text_output += "\n\nVERIFIED GROUNDING URLS:\n" + "\n".join(verified_links[:15])
+                    
+                    return text_output
             except Exception as e:
                 err_msg = str(e)
                 print(f"Notice on {model_name}: {err_msg}")
@@ -53,7 +91,7 @@ def generate_resilient(prompt: str, models: list[str]) -> str:
                     raise RuntimeError("Cuota diaria agotada (429). Espera al reseteo o usa otra clave.")
 
                 if "503" in err_msg or "high demand" in err_msg.lower() or "disconnected" in err_msg.lower():
-                    wait_sec = attempt * 8  # 8s, 16s, 24s
+                    wait_sec = attempt * 8
                     print(f"Server busy. Waiting {wait_sec}s...")
                     time.sleep(wait_sec)
                 else:
@@ -61,206 +99,343 @@ def generate_resilient(prompt: str, models: list[str]) -> str:
 
     raise RuntimeError("Todos los modelos disponibles estuvieron saturados tras varios reintentos.")
 
-ACTIVE_MODELS = get_available_models()
-print(f"Detected active models for this key: {ACTIVE_MODELS}")
+def send_email(subject: str, plain_text: str, html_content: str):
+    gmail_user = os.environ.get("GMAIL_ADDRESS")
+    gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
 
-today_str = datetime.now().strftime("%A, %B %d, %Y")
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"Morning Dispatch <{gmail_user}>"
+    msg["To"] = gmail_user
 
-# 2. AGENTE 1: CULTURE & AI SCOUT
-scout_prompt = f"""
-You are the Culture & AI Scout for a prestigious daily dispatch. Today is {today_str}.
-Suggest 3 distinct cultural dilemmas emerging from AI adoption:
-1. Story 1: Impact on human creative craft, writing, or habits.
-2. Story 2: Workplace or institutional tension where human judgment meets automation.
-3. Story 3: Modern digital habit or psychological shift.
+    msg.attach(MIMEText(plain_text, "plain"))
+    msg.attach(MIMEText(html_content, "html"))
 
-For each, provide:
-- Headline
-- One-sentence subtitle on the core paradox
-- Core tension in 2 sentences
-- The takeaway insight in 1 sentence
-"""
+    print("Sending email to Gmail...")
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
+        server.login(gmail_user, gmail_password)
+        server.send_message(msg)
+    print("Dispatch completed and sent successfully!")
 
-print("Starting Scout step...")
-scout_output = generate_resilient(scout_prompt, ACTIVE_MODELS)
+# EJECUCIÓN PRINCIPAL CON CAPTURA DE ERRORES
+try:
+    ACTIVE_MODELS = get_available_models()
+    today_str = datetime.now().strftime("%Y // %m.%d").upper()
+    readable_date = datetime.now().strftime("%B %d, %Y")
 
-# 3. AGENTE 2: ESSAYIST & EDITORIAL DESIGNER
-writer_prompt = f"""
-You are an Essayist & Editorial Designer writing in the style of The New York Times culture desk and high-end Substack essays.
-Tone: Witty, perceptive, concise. No corporate AI buzzwords (never use delve, tapestry, landscape).
+    # =========================================================================
+    # AGENTE 1: SCOUT (INVESTIGACIÓN AMPLIA DE 6 CANDIDATOS REALES)
+    # =========================================================================
+    scout_prompt = f"""
+    You are a Senior Research Scout. Today is {readable_date}.
+    Search the web and gather 6 real, distinct news stories or cultural essays published in the last 72 hours across these themes:
+    - 2 stories on AI's impact on creative craft, design, publishing, art, or media.
+    - 2 stories on workplace friction, corporate decisions, or regulation involving AI and human judgment.
+    - 2 stories on cultural shifts, consumer behavior, or social debates around modern technology.
 
-Based on these notes:
-{scout_output}
+    STRICT SOURCE RULES:
+    - Prioritize top-tier journalism: Financial Times, The New York Times, The Atlantic, Wired, MIT Technology Review, The Economist, Ars Technica, Bloomberg, Nature, The Verge, The Guardian.
+    - Reject vendor press releases, self-promotional AI announcements, and listicles.
 
-Generate ONLY valid raw HTML (no markdown code blocks, no ```html):
-- A 2-sentence opening hook on today's cultural current.
-- For each of the 3 stories:
-  * <span class="pill">CATEGORY</span>
-  * <h2>Headline</h2>
-  * <p class="subtitle">Subtitle</p>
-  * An editorial image:
-    - Story 1: <img src="[https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80)" class="story-img" alt="Visual" />
-    - Story 2: <img src="[https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=800&q=80)" class="story-img" alt="Visual" />
-    - Story 3: <img src="[https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80](https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80)" class="story-img" alt="Visual" />
-  * 2 tight narrative paragraphs.
-  * <div class="takeaway-box"><strong>The takeaway:</strong> Core insight.</div>
-- A brief parting thought.
-"""
+    For each of the 6 candidates, provide:
+    - Candidate Number (1 to 6)
+    - Raw Title & Publication Name
+    - Exact URL from the search results
+    - Concrete facts, figures, names, and core tension (3-4 sentences).
+    """
 
-print("Starting Writer step...")
-writer_output = generate_resilient(writer_prompt, ACTIVE_MODELS)
-newsletter_body_html = writer_output.replace("```html", "").replace("```", "").strip()
+    print("1/3 -> Starting Scout step (gathering 6 stories)...")
+    scout_output = generate_resilient(scout_prompt, ACTIVE_MODELS, use_search=True, temp=0.2)
 
-# 4. PLANTILLA HTML CON PALETA EDITORIAL
-html_template = """<!DOCTYPE html>
+    # =========================================================================
+    # AGENTE 2: EDITOR JEFE (CURADURÍA, FILTRO DE RIGOR Y ÁNGULO EDITORIAL)
+    # =========================================================================
+    editor_prompt = f"""
+    You are the Editor-in-Chief of "Morning AI & Culture Dispatch", an avant-garde minimalist daily briefing.
+    Review the 6 candidate stories gathered by the Scout below:
+
+    {scout_output}
+
+    YOUR EDITORIAL MISSION:
+    1. Discard weak stories (corporate PR disguised as news, repetitive tropes, or thin reporting).
+    2. Select the BEST 3 stories—one for each pillar:
+       - 01 / CRAFT (Creativity, design, media, human skill)
+       - 02 / WORK (Institutions, labor, governance, human judgment)
+       - 03 / CULTURE (Behavior, psychology, society, daily life)
+    3. Define a unifying thread for today's edition (2 crisp sentences explaining what connects today's cultural mood).
+    4. For each of the 3 selected stories, define:
+       - The exact Category label (CRAFT, WORK, or CULTURE)
+       - A punchy lowercase headline (max 6 words)
+       - The sharp editorial angle (what is the real human tension here?)
+       - The verified facts, names, and numbers to preserve
+       - The exact Publication Name and exact URL (must match the Scout's verified URLs).
+    """
+
+    print("2/3 -> Starting Editor-in-Chief step (curating top 3)...")
+    editor_brief = generate_resilient(editor_prompt, ACTIVE_MODELS, use_search=False, temp=0.3)
+
+    # =========================================================================
+    # AGENTE 3: WRITER (REDACCIÓN CLARA, DIRECTA Y MAQUETACIÓN HTML)
+    # =========================================================================
+    writer_prompt = f"""
+    You are a sharp editorial writer. Turn the Editor-in-Chief's approved brief into a crisp, effortless morning read.
+
+    STYLE & RIGOR RULES:
+    - Clarity first: Short sentences, active verbs, concrete details (names, numbers, companies) from the brief.
+    - Never invent facts, quotes, or URLs not present in the brief below.
+    - Avoid convoluted metaphors, academic jargon, and AI clichés (never use delve, tapestry, landscape, paradigm, nuanced, labyrinth).
+    - Keep paragraphs short (3 to 4 lines max).
+    - DO NOT include any <img> tags anywhere.
+
+    Editor-in-Chief Brief:
+    {editor_brief}
+
+    Generate ONLY valid raw HTML (no markdown code blocks, no ```html):
+    - Start with the unifying 2-sentence editorial intro inside <p class="intro-text">...</p>
+    - For each of the 3 stories, wrap in <div class="story-block">:
+      * Index & Category header: <div class="story-meta">01 / CATEGORY</div> (use 01, 02, 03)
+      * <h2 class="story-title">lowercase headline</h2>
+      * <p class="subtitle">One plain, direct sentence summarizing the core development.</p>
+      * 2 short, factual paragraphs (<p>...</p>).
+      * Takeaway box: <div class="takeaway-box"><span class="takeaway-label">TAKEAWAY //</span> One clear, memorable sentence.</div>
+      * Source link block using ONLY the exact verified URL from the brief:
+        <div class="source-row"><span class="source-label">SOURCE // PUBLICATION NAME</span> <a href="EXACT_URL" class="source-link" target="_blank">READ ARTICLE &rarr;</a></div>
+    - End with 1 simple, grounded closing thought inside <div class="parting-thought">...</div>.
+    """
+
+    print("3/3 -> Starting Writer step (drafting HTML)...")
+    writer_output = generate_resilient(writer_prompt, ACTIVE_MODELS, use_search=False, temp=0.4)
+    newsletter_body_html = writer_output.replace("```html", "").replace("```", "").strip()
+
+    # =========================================================================
+    # AUDITORÍA AUTOMÁTICA DE ENLACES Y ESTRUCTURA HTML
+    # =========================================================================
+    print("Auditing links and HTML structure...")
+    urls_found = re.findall(r'href="(https?://[^"]+)"', newsletter_body_html)
+    for url in urls_found:
+        if not verify_url(url):
+            print(f"Removing broken or unreachable URL: {url}")
+            newsletter_body_html = re.sub(
+                rf'<a href="{re.escape(url)}"[^>]*>READ ARTICLE &rarr;</a>',
+                '<span class="source-label">PRINT / ARCHIVE EDITION</span>',
+                newsletter_body_html
+            )
+
+    if newsletter_body_html.count('class="story-block"') < 3:
+        raise RuntimeError("Validación fallida: El HTML generado no contiene las 3 historias completas.")
+
+    # =========================================================================
+    # PLANTILLA EDITORIAL (CABECERA GEOMÉTRICA ESTILO KARTELL + SIN IMÁGENES)
+    # =========================================================================
+    html_template = """<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="[https://fonts.googleapis.com/css2?family=Jost:wght@500;600;700&display=swap](https://fonts.googleapis.com/css2?family=Jost:wght@500;600;700&display=swap)" rel="stylesheet">
   <style>
     body {
       margin: 0;
       padding: 0;
-      background-color: #FEFFE3;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      color: #255A4B;
+      background-color: #F4F4F4;
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      color: #2140D6;
       line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
     }
     .container {
       max-width: 620px;
       margin: 30px auto;
       background: #FFFFFF;
-      border-radius: 18px;
-      overflow: hidden;
-      box-shadow: 0 4px 20px rgba(37, 90, 75, 0.06);
-      border: 1px solid #EAEFD2;
+      border: 1px solid #2140D6;
+      border-radius: 0px;
+    }
+    .top-bar {
+      padding: 12px 30px;
+      border-bottom: 1px solid #2140D6;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      display: flex;
+      justify-content: space-between;
+      text-transform: uppercase;
     }
     .header {
-      background: #255A4B;
-      padding: 40px 30px;
-      text-align: center;
-      color: #FEFFE3;
+      padding: 48px 30px 42px 30px;
+      border-bottom: 1px solid #2140D6;
     }
-    .header-tag {
-      display: inline-block;
-      background-color: #C9FF46;
-      color: #255A4B;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-      padding: 5px 12px;
-      border-radius: 20px;
-      margin-bottom: 12px;
-    }
-    .header h1 {
-      margin: 0 0 8px 0;
-      font-size: 26px;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      color: #FEFFE3;
-    }
-    .header p {
+    .header-title {
+      font-family: 'Jost', 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif;
       margin: 0;
+      font-size: 46px;
+      font-weight: 600;
+      line-height: 1.02;
+      letter-spacing: -1.5px;
+      color: #2140D6;
+    }
+    .header-year {
+      font-family: 'Jost', 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif;
+      margin: 6px 0 0 0;
+      font-size: 42px;
+      font-weight: 500;
+      line-height: 1.0;
+      letter-spacing: -1px;
+      color: #2140D6;
+    }
+    .header-sub {
+      margin: 22px 0 0 0;
       font-size: 14px;
-      color: #A6FFE8;
+      font-weight: 400;
+      max-width: 460px;
+      line-height: 1.5;
+      color: #2140D6;
     }
     .content {
       padding: 35px 30px;
     }
-    .pill {
-      display: inline-block;
-      background-color: #A6FFE8;
-      color: #255A4B;
+    .intro-text {
+      font-size: 15px;
+      padding-bottom: 28px;
+      margin-bottom: 35px;
+      border-bottom: 1px dashed #2140D6;
+    }
+    .story-block {
+      margin-bottom: 42px;
+      padding-bottom: 34px;
+      border-bottom: 1px solid #2140D6;
+    }
+    .story-block:last-of-type {
+      border-bottom: none;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+    }
+    .story-meta {
       font-size: 11px;
       font-weight: 700;
+      letter-spacing: 1.5px;
       text-transform: uppercase;
-      letter-spacing: 1px;
-      padding: 4px 10px;
-      border-radius: 6px;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
+      color: #2140D6;
     }
-    h2 {
-      color: #255A4B;
-      font-size: 21px;
-      margin: 8px 0 4px 0;
-      line-height: 1.3;
-      font-weight: 800;
+    .story-title {
+      font-family: 'Jost', 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif;
+      font-size: 28px;
+      font-weight: 600;
+      line-height: 1.12;
+      letter-spacing: -0.6px;
+      text-transform: lowercase;
+      margin: 0 0 10px 0;
+      color: #2140D6;
     }
     .subtitle {
-      color: #4456FF;
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 600;
-      margin: 0 0 16px 0;
-    }
-    .story-img {
-      width: 100%;
-      height: 240px;
-      object-fit: cover;
-      border-radius: 12px;
-      margin: 12px 0 18px 0;
-      display: block;
+      margin: 0 0 18px 0;
+      line-height: 1.45;
     }
     p {
       margin: 0 0 16px 0;
-      font-size: 15px;
+      font-size: 15.5px;
+      line-height: 1.65;
+      font-weight: 400;
     }
     .takeaway-box {
-      background-color: #F6FAED;
-      border-left: 4px solid #34C38F;
-      padding: 12px 16px;
-      border-radius: 0 8px 8px 0;
-      margin: 20px 0 35px 0;
-      font-size: 14px;
+      border: 1px solid #2140D6;
+      padding: 15px 18px;
+      margin-top: 20px;
+      font-size: 14.5px;
+      line-height: 1.55;
+      background-color: #F8F9FF;
     }
-    .takeaway-box strong {
-      color: #255A4B;
+    .takeaway-label {
+      font-weight: 800;
+      font-size: 12px;
+      letter-spacing: 0.8px;
+      margin-right: 4px;
+    }
+    .source-row {
+      margin-top: 14px;
+      padding-top: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+    .source-label {
+      color: #2140D6;
+      opacity: 0.8;
+    }
+    .source-link {
+      color: #2140D6;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .parting-thought {
+      border-top: 1px dashed #2140D6;
+      padding-top: 24px;
+      margin-top: 20px;
+      font-size: 14.5px;
+      font-style: italic;
     }
     .footer {
-      background-color: #FEFFE3;
-      padding: 25px;
-      text-align: center;
-      font-size: 13px;
-      color: #255A4B;
-      border-top: 1px solid #EAEFD2;
+      padding: 25px 30px;
+      border-top: 1px solid #2140D6;
+      font-size: 11px;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <span class="header-tag">Daily Briefing</span>
-      <h1>Your Morning AI &amp; Culture Dispatch</h1>
-      <p>{{TODAY_STR}} &bull; A 4-minute curated read</p>
+    <div class="top-bar">
+      <span>DISPATCH // ISSUE DAILY</span>
+      <span>{{TODAY_STR}}</span>
     </div>
+    
+    <div class="header">
+      <h1 class="header-title">Morning AI &amp;<br>Culture Dispatch</h1>
+      <div class="header-year">2026</div>
+      <p class="header-sub">
+        A sharp, curated 4-minute briefing on human friction, creative craft, and algorithmic culture.
+      </p>
+    </div>
+
     <div class="content">
       {{NEWSLETTER_BODY}}
     </div>
+
     <div class="footer">
-      <p style="margin: 0;">Curated daily with curious precision. Have a great day.</p>
+      <span>CURATED WITH PRECISION</span>
+      <span>END OF DISPATCH &rarr;</span>
     </div>
   </div>
 </body>
 </html>
 """
 
-full_email_html = html_template.replace("{{TODAY_STR}}", today_str).replace("{{NEWSLETTER_BODY}}", newsletter_body_html)
+    full_email_html = html_template.replace("{{TODAY_STR}}", today_str).replace("{{NEWSLETTER_BODY}}", newsletter_body_html)
 
-# 5. ENVÍO POR GMAIL SMTP
-gmail_user = os.environ.get("GMAIL_ADDRESS")
-gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
+    send_email(
+        subject=f"Morning AI & Culture Dispatch // {today_str}",
+        plain_text=newsletter_body_html,
+        html_content=full_email_html
+    )
 
-msg = MIMEMultipart("alternative")
-msg["Subject"] = f"☕ Your Morning AI & Culture Dispatch — {today_str}"
-msg["From"] = f"Your Morning Dispatch <{gmail_user}>"
-msg["To"] = gmail_user
-
-msg.attach(MIMEText(newsletter_body_html, "plain"))
-msg.attach(MIMEText(full_email_html, "html"))
-
-print("Sending email to Gmail...")
-with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
-    server.login(gmail_user, gmail_password)
-    server.send_message(msg)
-
-print("Dispatch completed and sent successfully!")
+except Exception as fatal_err:
+    print(f"CRITICAL ERROR: {fatal_err}")
+    try:
+        send_email(
+            subject=f"[ALERT] Morning Dispatch Failed // {datetime.now().strftime('%Y-%m-%d')}",
+            plain_text=f"The automated newsletter run failed with error:\n\n{fatal_err}",
+            html_content=f"<p><strong>Automated Dispatch Error:</strong></p><pre>{fatal_err}</pre>"
+        )
+    except Exception:
+        pass
+    raise fatal_err
