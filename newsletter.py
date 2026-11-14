@@ -88,7 +88,6 @@ def generate_resilient(prompt: str, models: list[str], use_search: bool = False,
                 last_error = str(e)
                 print(f"Notice on {model_name}: {last_error}")
 
-                # Si este modelo concreto tiene límite 429 (cuota 0 o límite por minuto), salta al siguiente modelo
                 if "429" in last_error or "resource_exhausted" in last_error.lower():
                     print(f"Limit hit on {model_name}. Switching to next model...")
                     time.sleep(2)
@@ -128,9 +127,7 @@ try:
     today_str = datetime.now().strftime("%Y // %m.%d").upper()
     readable_date = datetime.now().strftime("%B %d, %Y")
 
-    # =========================================================================
-    # AGENTE 1: SCOUT (INVESTIGACIÓN AMPLIA DE 6 CANDIDATOS REALES)
-    # =========================================================================
+    # AGENTE 1: SCOUT
     scout_prompt = f"""
     You are a Senior Research Scout. Today is {readable_date}.
     Search the web and gather 6 real, distinct news stories or cultural essays published in the last 72 hours across these themes:
@@ -152,9 +149,7 @@ try:
     print("1/3 -> Starting Scout step (gathering 6 stories)...")
     scout_output = generate_resilient(scout_prompt, ACTIVE_MODELS, use_search=True, temp=0.2)
 
-    # =========================================================================
-    # AGENTE 2: EDITOR JEFE (CURADURÍA, FILTRO DE RIGOR Y ÁNGULO EDITORIAL)
-    # =========================================================================
+    # AGENTE 2: EDITOR JEFE
     editor_prompt = f"""
     You are the Editor-in-Chief of "Morning AI & Culture Dispatch", an avant-garde minimalist daily briefing.
     Review the 6 candidate stories gathered by the Scout below:
@@ -179,9 +174,7 @@ try:
     print("2/3 -> Starting Editor-in-Chief step (curating top 3)...")
     editor_brief = generate_resilient(editor_prompt, ACTIVE_MODELS, use_search=False, temp=0.3)
 
-    # =========================================================================
-    # AGENTE 3: WRITER (REDACCIÓN CLARA, DIRECTA Y MAQUETACIÓN HTML)
-    # =========================================================================
+    # AGENTE 3: WRITER
     writer_prompt = f"""
     You are a sharp editorial writer. Turn the Editor-in-Chief's approved brief into a crisp, effortless morning read.
 
@@ -212,9 +205,7 @@ try:
     writer_output = generate_resilient(writer_prompt, ACTIVE_MODELS, use_search=False, temp=0.4)
     newsletter_body_html = writer_output.replace("```html", "").replace("```", "").strip()
 
-    # =========================================================================
     # AUDITORÍA AUTOMÁTICA DE ENLACES Y ESTRUCTURA HTML
-    # =========================================================================
     print("Auditing links and HTML structure...")
     urls_found = re.findall(r'href="(https?://[^"]+)"', newsletter_body_html)
     for url in urls_found:
@@ -229,9 +220,7 @@ try:
     if newsletter_body_html.count('class="story-block"') < 3:
         raise RuntimeError("Validación fallida: El HTML generado no contiene las 3 historias completas.")
 
-    # =========================================================================
-    # PLANTILLA EDITORIAL (CABECERA GEOMÉTRICA ESTILO KARTELL + SIN IMÁGENES)
-    # =========================================================================
+    # PLANTILLA EDITORIAL
     html_template = """<!DOCTYPE html>
 <html>
 <head>
@@ -239,62 +228,60 @@ try:
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="[https://fonts.googleapis.com/css2?family=Jost:wght@500;600;700&display=swap](https://fonts.googleapis.com/css2?family=Jost:wght@500;600;700&display=swap)" rel="stylesheet">
   <style>
-    body {
-      margin: 0;
-      padding: 0;
-      background-color: #F4F4F4;
-      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-      color: #2140D6;
-      line-height: 1.65;
-      -webkit-font-smoothing: antialiased;
-    }
-    .container {
-      max-width: 620px;
-      margin: 30px auto;
-      background: #FFFFFF;
-      border: 1px solid #2140D6;
-      border-radius: 0px;
-    }
-    .top-bar {
-      padding: 12px 30px;
-      border-bottom: 1px solid #2140D6;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 1.2px;
-      display: flex;
-      justify-content: space-between;
-      text-transform: uppercase;
-    }
-    .header {
-      padding: 48px 30px 42px 30px;
-      border-bottom: 1px solid #2140D6;
-    }
-    .header-title {
-      font-family: 'Jost', 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif;
-      margin: 0;
-      font-size: 46px;
-      font-weight: 600;
-      line-height: 1.02;
-      letter-spacing: -1.5px;
-      color: #2140D6;
-    }
-    .header-year {
-      font-family: 'Jost', 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif;
-      margin: 6px 0 0 0;
-      font-size: 42px;
-      font-weight: 500;
-      line-height: 1.0;
-      letter-spacing: -1px;
-      color: #2140D6;
-    }
-    .header-sub {
-      margin: 22px 0 0 0;
-      font-size: 14px;
-      font-weight: 400;
-      max-width: 460px;
-      line-height: 1.5;
-      color: #2140D6;
-    }
-    .content {
-      padding: 35px 30px;
-    }
+    body { margin: 0; padding: 0; background-color: #F4F4F4; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #2140D6; line-height: 1.65; -webkit-font-smoothing: antialiased; }
+    .container { max-width: 620px; margin: 30px auto; background: #FFFFFF; border: 1px solid #2140D6; border-radius: 0px; }
+    .top-bar { padding: 12px 30px; border-bottom: 1px solid #2140D6; font-size: 11px; font-weight: 600; letter-spacing: 1.2px; display: flex; justify-content: space-between; text-transform: uppercase; }
+    .header { padding: 48px 30px 42px 30px; border-bottom: 1px solid #2140D6; }
+    .header-title { font-family: 'Jost', 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif; margin: 0; font-size: 46px; font-weight: 600; line-height: 1.02; letter-spacing: -1.5px; color: #2140D6; }
+    .header-year { font-family: 'Jost', 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif; margin: 6px 0 0 0; font-size: 42px; font-weight: 500; line-height: 1.0; letter-spacing: -1px; color: #2140D6; }
+    .header-sub { margin: 22px 0 0 0; font-size: 14px; font-weight: 400; max-width: 460px; line-height: 1.5; color: #2140D6; }
+    .content { padding: 35px 30px; }
+    .intro-text { font-size: 15px; padding-bottom: 28px; margin-bottom: 35px; border-bottom: 1px dashed #2140D6; }
+    .story-block { margin-bottom: 42px; padding-bottom: 34px; border-bottom: 1px solid #2140D6; }
+    .story-block:last-of-type { border-bottom: none; margin-bottom: 20px; padding-bottom: 10px; }
+    .story-meta { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; color: #2140D6; }
+    .story-title { font-family: 'Jost', 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif; font-size: 28px; font-weight: 600; line-height: 1.12; letter-spacing: -0.6px; text-transform: lowercase; margin: 0 0 10px 0; color: #2140D6; }
+    .subtitle { font-size: 15px; font-weight: 600; margin: 0 0 18px 0; line-height: 1.45; }
+    p { margin: 0 0 16px 0; font-size: 15.5px; line-height: 1.65; font-weight: 400; }
+    .takeaway-box { border: 1px solid #2140D6; padding: 15px 18px; margin-top: 20px; font-size: 14.5px; line-height: 1.55; background-color: #F8F9FF; }
+    .takeaway-label { font-weight: 800; font-size: 12px; letter-spacing: 0.8px; margin-right: 4px; }
+    .source-row { margin-top: 14px; padding-top: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
+    .source-label { color: #2140D6; opacity: 0.8; }
+    .source-link { color: #2140D6; text-decoration: underline; text-underline-offset: 3px; }
+    .parting-thought { border-top: 1px dashed #2140D6; padding-top: 24px; margin-top: 20px; font-size: 14.5px; font-style: italic; }
+    .footer { padding: 25px 30px; border-top: 1px solid #2140D6; font-size: 11px; font-weight: 600; display: flex; justify-content: space-between; text-transform: uppercase; letter-spacing: 1.2px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="top-bar"><span>DISPATCH // ISSUE DAILY</span><span>{{TODAY_STR}}</span></div>
+    <div class="header">
+      <h1 class="header-title">Morning AI &amp;<br>Culture Dispatch</h1>
+      <div class="header-year">2026</div>
+      <p class="header-sub">A sharp, curated 4-minute briefing on human friction, creative craft, and algorithmic culture.</p>
+    </div>
+    <div class="content">{{NEWSLETTER_BODY}}</div>
+    <div class="footer"><span>CURATED WITH PRECISION</span><span>END OF DISPATCH &rarr;</span></div>
+  </div>
+</body>
+</html>"""
+
+    full_email_html = html_template.replace("{{TODAY_STR}}", today_str).replace("{{NEWSLETTER_BODY}}", newsletter_body_html)
+
+    send_email(
+        subject=f"Morning AI & Culture Dispatch // {today_str}",
+        plain_text=newsletter_body_html,
+        html_content=full_email_html
+    )
+
+except Exception as fatal_err:
+    print(f"CRITICAL ERROR: {fatal_err}")
+    try:
+        send_email(
+            subject=f"[ALERT] Morning Dispatch Failed // {datetime.now().strftime('%Y-%m-%d')}",
+            plain_text=f"The automated newsletter run failed with error:\n\n{fatal_err}",
+            html_content=f"<p><strong>Automated Dispatch Error:</strong></p><pre>{fatal_err}</pre>"
+        )
+    except Exception:
+        pass
+    raise fatal_err
