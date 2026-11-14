@@ -267,7 +267,6 @@ try:
     <div class="top-bar"><span>DISPATCH // ISSUE DAILY</span><span>{{TODAY_STR}}</span></div>
     <div class="header">
       <h1 class="header-title">Morning AI &amp;<br>Culture Dispatch</h1>
-      <div class="header-year">2026</div>
       <p class="header-sub">A sharp, curated 4-minute briefing on human friction, creative craft, and algorithmic culture.</p>
     </div>
     <div class="content">{{NEWSLETTER_BODY}}</div>
