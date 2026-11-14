@@ -55,6 +55,7 @@ def generate_resilient(prompt: str, models: list[str], use_search: bool = False,
         temperature=temp
     )
 
+    last_error = ""
     for model_name in models:
         for attempt in range(1, 4):
             try:
@@ -84,20 +85,23 @@ def generate_resilient(prompt: str, models: list[str], use_search: bool = False,
                     
                     return text_output
             except Exception as e:
-                err_msg = str(e)
-                print(f"Notice on {model_name}: {err_msg}")
+                last_error = str(e)
+                print(f"Notice on {model_name}: {last_error}")
 
-                if "429" in err_msg or "resource_exhausted" in err_msg.lower():
-                    raise RuntimeError("Cuota diaria agotada (429). Espera al reseteo o usa otra clave.")
+                # Si este modelo concreto tiene límite 429 (cuota 0 o límite por minuto), salta al siguiente modelo
+                if "429" in last_error or "resource_exhausted" in last_error.lower():
+                    print(f"Limit hit on {model_name}. Switching to next model...")
+                    time.sleep(2)
+                    break
 
-                if "503" in err_msg or "high demand" in err_msg.lower() or "disconnected" in err_msg.lower():
+                if "503" in last_error or "high demand" in last_error.lower() or "disconnected" in last_error.lower():
                     wait_sec = attempt * 8
                     print(f"Server busy. Waiting {wait_sec}s...")
                     time.sleep(wait_sec)
                 else:
                     break
 
-    raise RuntimeError("Todos los modelos disponibles estuvieron saturados tras varios reintentos.")
+    raise RuntimeError(f"Todos los modelos fallaron. Último error de Google: {last_error}")
 
 def send_email(subject: str, plain_text: str, html_content: str):
     gmail_user = os.environ.get("GMAIL_ADDRESS")
@@ -120,6 +124,7 @@ def send_email(subject: str, plain_text: str, html_content: str):
 # EJECUCIÓN PRINCIPAL CON CAPTURA DE ERRORES
 try:
     ACTIVE_MODELS = get_available_models()
+    print(f"Detected active models: {ACTIVE_MODELS}")
     today_str = datetime.now().strftime("%Y // %m.%d").upper()
     readable_date = datetime.now().strftime("%B %d, %Y")
 
@@ -293,149 +298,3 @@ try:
     .content {
       padding: 35px 30px;
     }
-    .intro-text {
-      font-size: 15px;
-      padding-bottom: 28px;
-      margin-bottom: 35px;
-      border-bottom: 1px dashed #2140D6;
-    }
-    .story-block {
-      margin-bottom: 42px;
-      padding-bottom: 34px;
-      border-bottom: 1px solid #2140D6;
-    }
-    .story-block:last-of-type {
-      border-bottom: none;
-      margin-bottom: 20px;
-      padding-bottom: 10px;
-    }
-    .story-meta {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-      margin-bottom: 8px;
-      color: #2140D6;
-    }
-    .story-title {
-      font-family: 'Jost', 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif;
-      font-size: 28px;
-      font-weight: 600;
-      line-height: 1.12;
-      letter-spacing: -0.6px;
-      text-transform: lowercase;
-      margin: 0 0 10px 0;
-      color: #2140D6;
-    }
-    .subtitle {
-      font-size: 15px;
-      font-weight: 600;
-      margin: 0 0 18px 0;
-      line-height: 1.45;
-    }
-    p {
-      margin: 0 0 16px 0;
-      font-size: 15.5px;
-      line-height: 1.65;
-      font-weight: 400;
-    }
-    .takeaway-box {
-      border: 1px solid #2140D6;
-      padding: 15px 18px;
-      margin-top: 20px;
-      font-size: 14.5px;
-      line-height: 1.55;
-      background-color: #F8F9FF;
-    }
-    .takeaway-label {
-      font-weight: 800;
-      font-size: 12px;
-      letter-spacing: 0.8px;
-      margin-right: 4px;
-    }
-    .source-row {
-      margin-top: 14px;
-      padding-top: 10px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 11.5px;
-      font-weight: 700;
-      letter-spacing: 0.8px;
-      text-transform: uppercase;
-    }
-    .source-label {
-      color: #2140D6;
-      opacity: 0.8;
-    }
-    .source-link {
-      color: #2140D6;
-      text-decoration: underline;
-      text-underline-offset: 3px;
-    }
-    .parting-thought {
-      border-top: 1px dashed #2140D6;
-      padding-top: 24px;
-      margin-top: 20px;
-      font-size: 14.5px;
-      font-style: italic;
-    }
-    .footer {
-      padding: 25px 30px;
-      border-top: 1px solid #2140D6;
-      font-size: 11px;
-      font-weight: 600;
-      display: flex;
-      justify-content: space-between;
-      text-transform: uppercase;
-      letter-spacing: 1.2px;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="top-bar">
-      <span>DISPATCH // ISSUE DAILY</span>
-      <span>{{TODAY_STR}}</span>
-    </div>
-    
-    <div class="header">
-      <h1 class="header-title">Morning AI &amp;<br>Culture Dispatch</h1>
-      <div class="header-year">2026</div>
-      <p class="header-sub">
-        A sharp, curated 4-minute briefing on human friction, creative craft, and algorithmic culture.
-      </p>
-    </div>
-
-    <div class="content">
-      {{NEWSLETTER_BODY}}
-    </div>
-
-    <div class="footer">
-      <span>CURATED WITH PRECISION</span>
-      <span>END OF DISPATCH &rarr;</span>
-    </div>
-  </div>
-</body>
-</html>
-"""
-
-    full_email_html = html_template.replace("{{TODAY_STR}}", today_str).replace("{{NEWSLETTER_BODY}}", newsletter_body_html)
-
-    send_email(
-        subject=f"Morning AI & Culture Dispatch // {today_str}",
-        plain_text=newsletter_body_html,
-        html_content=full_email_html
-    )
-
-except Exception as fatal_err:
-    print(f"CRITICAL ERROR: {fatal_err}")
-    try:
-        send_email(
-            subject=f"[ALERT] Morning Dispatch Failed // {datetime.now().strftime('%Y-%m-%d')}",
-            plain_text=f"The automated newsletter run failed with error:\n\n{fatal_err}",
-            html_content=f"<p><strong>Automated Dispatch Error:</strong></p><pre>{fatal_err}</pre>"
-        )
-    except Exception:
-        pass
-    raise fatal_err
