@@ -1,8 +1,12 @@
+import csv
+import html
+import io
 import os
 import re
 import smtplib
 import time
 import urllib.request
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -15,6 +19,20 @@ client = genai.Client(
     api_key=api_key,
     http_options=types.HttpOptions(api_version="v1beta")
 )
+
+# FUENTES RSS OFICIALES DE PRIMER NIVEL (INCLUYENDO THE NEW YORK TIMES)
+RSS_FEEDS = [
+    ("New York Times Tech", "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"),
+    ("New York Times Arts & Culture", "https://rss.nytimes.com/services/xml/rss/nyt/Arts.xml"),
+    ("New York Times Business", "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"),
+    ("MIT Technology Review", "https://www.technologyreview.com/feed/"),
+    ("Wired", "https://www.wired.com/feed/rss"),
+    ("Ars Technica", "https://feeds.arstechnica.com/arstechnica/index"),
+    ("The Verge", "https://www.theverge.com/rss/index.xml"),
+    ("The Guardian Tech", "https://www.theguardian.com/uk/technology/rss"),
+    ("The Guardian Culture", "https://www.theguardian.com/culture/rss"),
+    ("Financial Times Tech", "https://www.ft.com/technology?format=rss")
+]
 
 def get_available_models() -> list[str]:
     discovered = []
@@ -32,16 +50,77 @@ def get_available_models() -> list[str]:
 
     preferred = [
         "gemini-2.5-flash",
-        "gemini-3.8-flash",
-        "gemini-3.1-pro-preview",
         "gemini-2.5-pro",
-        "gemini-2.0-flash"
+        "gemini-2.0-flash",
+        "gemini-3.8-flash"
     ]
     ordered = [m for m in preferred if m in discovered]
     others = [m for m in discovered if m not in ordered and ("flash" in m or "pro" in m)]
     
     final_list = ordered + others
     return final_list if final_list else ["gemini-2.5-flash", "gemini-2.5-pro"]
+
+def clean_xml_text(raw_text: str) -> str:
+    if not raw_text:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", raw_text)
+    text = html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+def fetch_rss_news(max_per_feed: int = 5) -> str:
+    """Descarga titulares, resúmenes y URLs reales directamente de los RSS oficiales."""
+    collected_items = []
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; MorningDispatchBot/1.0)"}
+
+    for source_name, feed_url in RSS_FEEDS:
+        try:
+            req = urllib.request.Request(feed_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                xml_data = resp.read()
+            
+            root = ET.fromstring(xml_data)
+            items = root.findall(".//item")
+            is_atom = False
+            if not items:
+                items = root.findall(".//{http://www.w3.org/2005/Atom}entry")
+                is_atom = True
+
+            count = 0
+            for item in items:
+                if count >= max_per_feed:
+                    break
+
+                if not is_atom:
+                    title = clean_xml_text(item.findtext("title", ""))
+                    link = (item.findtext("link") or "").strip()
+                    desc = clean_xml_text(item.findtext("description", ""))
+                    pub_date = (item.findtext("pubDate") or "").strip()
+                else:
+                    title = clean_xml_text(item.findtext("{http://www.w3.org/2005/Atom}title", ""))
+                    link_el = item.find("{http://www.w3.org/2005/Atom}link")
+                    link = (link_el.attrib.get("href", "") if link_el is not None else "").strip()
+                    desc = clean_xml_text(
+                        item.findtext("{http://www.w3.org/2005/Atom}summary", "")
+                        or item.findtext("{http://www.w3.org/2005/Atom}content", "")
+                    )
+                    pub_date = (item.findtext("{http://www.w3.org/2005/Atom}published") or "").strip()
+
+                if title and link.startswith("http"):
+                    collected_items.append(
+                        f"- SOURCE: {source_name} | DATE: {pub_date}\n"
+                        f"  TITLE: {title}\n"
+                        f"  URL: {link}\n"
+                        f"  SUMMARY: {desc[:380]}"
+                    )
+                    count += 1
+        except Exception as e:
+            print(f"Aviso leyendo RSS de {source_name}: {e}")
+
+    if not collected_items:
+        raise RuntimeError("No se pudieron descargar artículos de los feeds RSS.")
+
+    print(f"Recopilados {len(collected_items)} artículos reales desde RSS oficiales.")
+    return "\n\n".join(collected_items)
 
 def verify_url(url: str) -> bool:
     """Comprueba que la URL sea accesible y no devuelva un 404."""
@@ -59,17 +138,15 @@ def verify_url(url: str) -> bool:
     except Exception:
         return False
 
-def generate_resilient(prompt: str, models: list[str], use_search: bool = False, temp: float = 0.3) -> str:
-    config = types.GenerateContentConfig(
-        tools=[types.Tool(google_search=types.GoogleSearch())] if use_search else None,
-        temperature=temp
-    )
+def generate_resilient(prompt: str, models: list[str], temp: float = 0.3) -> str:
+    """Ejecución de texto puro (sin Grounding) compatible con cuota gratuita."""
+    config = types.GenerateContentConfig(temperature=temp)
 
     last_error = ""
     for model_name in models:
         for attempt in range(1, 4):
             try:
-                print(f"-> Calling {model_name} (search={use_search}, attempt {attempt}/3)...")
+                print(f"-> Calling {model_name} (attempt {attempt}/3)...")
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
@@ -77,30 +154,14 @@ def generate_resilient(prompt: str, models: list[str], use_search: bool = False,
                 )
                 
                 if response and response.text:
-                    text_output = response.text
-                    
-                    if use_search and response.candidates:
-                        candidate = response.candidates[0]
-                        if getattr(candidate, "grounding_metadata", None):
-                            chunks = getattr(candidate.grounding_metadata, "grounding_chunks", []) or []
-                            verified_links = []
-                            for chunk in chunks:
-                                web = getattr(chunk, "web", None)
-                                if web and getattr(web, "uri", None):
-                                    title = getattr(web, "title", "Source")
-                                    verified_links.append(f"- {title}: {web.uri}")
-                            
-                            if verified_links:
-                                text_output += "\n\nVERIFIED GROUNDING URLS:\n" + "\n".join(verified_links[:15])
-                    
-                    return text_output
+                    return response.text
             except Exception as e:
                 last_error = str(e)
                 print(f"Notice on {model_name}: {last_error}")
 
                 if "429" in last_error or "resource_exhausted" in last_error.lower():
-                    print(f"Limit hit on {model_name}. Switching to next model...")
-                    time.sleep(2)
+                    print(f"Limit hit on {model_name}. Waiting 4s and switching model...")
+                    time.sleep(4)
                     break
 
                 if "503" in last_error or "high demand" in last_error.lower() or "disconnected" in last_error.lower():
@@ -112,54 +173,104 @@ def generate_resilient(prompt: str, models: list[str], use_search: bool = False,
 
     raise RuntimeError(f"Todos los modelos fallaron. Último error de Google: {last_error}")
 
-def send_email(subject: str, plain_text: str, html_content: str):
+def get_subscribers() -> list[str]:
+    """Combina tu correo principal, posibles contactos fijos y los inscritos en Google Sheets."""
+    subscribers = set()
+    owner_email = os.environ.get("GMAIL_ADDRESS", "").strip()
+    if owner_email:
+        subscribers.add(owner_email.lower())
+
+    extra = os.environ.get("EXTRA_SUBSCRIBERS", "")
+    for email in extra.split(","):
+        clean = email.strip().lower()
+        if "@" in clean and "." in clean:
+            subscribers.add(clean)
+
+    csv_url = os.environ.get("SUBSCRIBERS_CSV_URL", "").strip()
+    if csv_url:
+        try:
+            req = urllib.request.Request(csv_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                content = resp.read().decode("utf-8")
+                reader = csv.reader(io.StringIO(content))
+                next(reader, None)
+                for row in reader:
+                    for cell in row:
+                        clean = cell.strip().lower()
+                        if "@" in clean and "." in clean and " " not in clean:
+                            subscribers.add(clean)
+        except Exception as e:
+            print(f"Aviso leyendo CSV de suscriptores ({e}). Enviando a lista local.")
+
+    return sorted(list(subscribers))
+
+def send_email_to_all(subject: str, plain_text: str, html_content: str):
     gmail_user = os.environ.get("GMAIL_ADDRESS")
     gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
+    recipients = get_subscribers()
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = f"Morning Dispatch <{gmail_user}>"
-    msg["To"] = gmail_user
+    print(f"Preparando envío individual para {len(recipients)} suscriptor(es)...")
 
-    msg.attach(MIMEText(plain_text, "plain"))
-    msg.attach(MIMEText(html_content, "html"))
-
-    print("Sending email to Gmail...")
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
         server.login(gmail_user, gmail_password)
-        server.send_message(msg)
+        for recipient in recipients:
+            try:
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = subject
+                msg["From"] = f"Morning Dispatch <{gmail_user}>"
+                msg["To"] = recipient
+
+                msg.attach(MIMEText(plain_text, "plain"))
+                msg.attach(MIMEText(html_content, "html"))
+
+                server.send_message(msg)
+                print(f"-> Enviado correctamente a: {recipient}")
+                time.sleep(1.5)
+            except Exception as send_err:
+                print(f"Error enviando a {recipient}: {send_err}")
+
     print("Dispatch completed and sent successfully!")
 
-# EJECUCIÓN PRINCIPAL CON CAPTURA DE ERRORES
+# =========================================================================
+# EJECUCIÓN PRINCIPAL
+# =========================================================================
 try:
     ACTIVE_MODELS = get_available_models()
     print(f"Detected active models: {ACTIVE_MODELS}")
     today_str = datetime.now().strftime("%Y // %m.%d").upper()
     readable_date = datetime.now().strftime("%B %d, %Y")
 
-    # AGENTE 1: SCOUT
+    # PASO 0: DESCARGA DE NOTICIAS REALES DESDE RSS
+    print("0/3 -> Fetching live stories from tier-1 RSS feeds...")
+    raw_rss_feed = fetch_rss_news(max_per_feed=5)
+
+    # AGENTE 1: SCOUT (FILTRA Y ESTRUCTURA 6 CANDIDATOS DEL FEED RSS)
     scout_prompt = f"""
     You are a Senior Research Scout. Today is {readable_date}.
-    Search the web and gather 6 real, distinct news stories or cultural essays published in the last 72 hours across these themes:
+    Below is a live feed of real articles just published by top-tier outlets:
+
+    {raw_rss_feed}
+
+    Select 6 distinct, high-signal articles from the list above covering:
     - 2 stories on AI's impact on creative craft, design, publishing, art, or media.
     - 2 stories on workplace friction, corporate decisions, or regulation involving AI and human judgment.
     - 2 stories on cultural shifts, consumer behavior, or social debates around modern technology.
 
-    STRICT SOURCE RULES:
-    - Prioritize top-tier journalism: Financial Times, The New York Times, The Atlantic, Wired, MIT Technology Review, The Economist, Ars Technica, Bloomberg, Nature, The Verge, The Guardian.
-    - Reject vendor press releases, self-promotional AI announcements, and listicles.
+    STRICT RULES:
+    - Use ONLY articles present in the feed above.
+    - Copy the EXACT URL and EXACT Source Name from the feed—never alter a single character of a URL.
 
     For each of the 6 candidates, provide:
     - Candidate Number (1 to 6)
-    - Raw Title & Publication Name
-    - Exact URL from the search results
-    - Concrete facts, figures, names, and core tension (3-4 sentences).
+    - Raw Title & Exact Publication Name
+    - Exact URL
+    - Concrete facts, figures, names, and core tension based on the summary (3 sentences).
     """
 
-    print("1/3 -> Starting Scout step (gathering 6 stories)...")
-    scout_output = generate_resilient(scout_prompt, ACTIVE_MODELS, use_search=True, temp=0.2)
+    print("1/3 -> Starting Scout step (selecting 6 candidates)...")
+    scout_output = generate_resilient(scout_prompt, ACTIVE_MODELS, temp=0.2)
 
-    # AGENTE 2: EDITOR JEFE
+    # AGENTE 2: EDITOR JEFE (CURADURÍA Y ÁNGULO EDITORIAL)
     editor_prompt = f"""
     You are the Editor-in-Chief of "Morning AI & Culture Dispatch", an avant-garde minimalist daily briefing.
     Review the 6 candidate stories gathered by the Scout below:
@@ -167,7 +278,7 @@ try:
     {scout_output}
 
     YOUR EDITORIAL MISSION:
-    1. Discard weak stories (corporate PR disguised as news, repetitive tropes, or thin reporting).
+    1. Discard weak stories (routine product updates, repetitive tropes, or thin summaries).
     2. Select the BEST 3 stories—one for each pillar:
        - 01 / CRAFT (Creativity, design, media, human skill)
        - 02 / WORK (Institutions, labor, governance, human judgment)
@@ -178,13 +289,13 @@ try:
        - A punchy lowercase headline (max 6 words)
        - The sharp editorial angle (what is the real human tension here?)
        - The verified facts, names, and numbers to preserve
-       - The exact Publication Name and exact URL (must match the Scout's verified URLs).
+       - The exact Publication Name and exact URL (must match the Scout's URLs verbatim).
     """
 
     print("2/3 -> Starting Editor-in-Chief step (curating top 3)...")
-    editor_brief = generate_resilient(editor_prompt, ACTIVE_MODELS, use_search=False, temp=0.3)
+    editor_brief = generate_resilient(editor_prompt, ACTIVE_MODELS, temp=0.3)
 
-    # AGENTE 3: WRITER
+    # AGENTE 3: WRITER (REDACCIÓN CLARA Y MAQUETACIÓN HTML)
     writer_prompt = f"""
     You are a sharp editorial writer. Turn the Editor-in-Chief's approved brief into a crisp, effortless morning read.
 
@@ -212,7 +323,7 @@ try:
     """
 
     print("3/3 -> Starting Writer step (drafting HTML)...")
-    writer_output = generate_resilient(writer_prompt, ACTIVE_MODELS, use_search=False, temp=0.4)
+    writer_output = generate_resilient(writer_prompt, ACTIVE_MODELS, temp=0.4)
     newsletter_body_html = writer_output.replace("```html", "").replace("```", "").strip()
 
     # AUDITORÍA AUTOMÁTICA DE ENLACES Y ESTRUCTURA HTML
@@ -267,17 +378,26 @@ try:
     <div class="top-bar"><span>DISPATCH // ISSUE DAILY</span><span>{{TODAY_STR}}</span></div>
     <div class="header">
       <h1 class="header-title">Morning AI &amp;<br>Culture Dispatch</h1>
+      <div class="header-year">2026</div>
       <p class="header-sub">A sharp, curated 4-minute briefing on human friction, creative craft, and algorithmic culture.</p>
     </div>
     <div class="content">{{NEWSLETTER_BODY}}</div>
     <div class="footer"><span>CURATED WITH PRECISION</span><span>END OF DISPATCH &rarr;</span></div>
   </div>
+  <div style="text-align:center; padding: 14px; font-size: 11px; color: #2140D6; opacity: 0.7;">
+    Don’t want these daily briefings? <a href="mailto:{{UNSUB_EMAIL}}?subject=UNSUBSCRIBE" style="color: #2140D6;">Unsubscribe</a>
+  </div>
 </body>
 </html>"""
 
-    full_email_html = html_template.replace("{{TODAY_STR}}", today_str).replace("{{NEWSLETTER_BODY}}", newsletter_body_html)
+    full_email_html = (
+        html_template
+        .replace("{{TODAY_STR}}", today_str)
+        .replace("{{NEWSLETTER_BODY}}", newsletter_body_html)
+        .replace("{{UNSUB_EMAIL}}", os.environ.get("GMAIL_ADDRESS", ""))
+    )
 
-    send_email(
+    send_email_to_all(
         subject=f"Morning AI & Culture Dispatch // {today_str}",
         plain_text=newsletter_body_html,
         html_content=full_email_html
@@ -286,11 +406,15 @@ try:
 except Exception as fatal_err:
     print(f"CRITICAL ERROR: {fatal_err}")
     try:
-        send_email(
-            subject=f"[ALERT] Morning Dispatch Failed // {datetime.now().strftime('%Y-%m-%d')}",
-            plain_text=f"The automated newsletter run failed with error:\n\n{fatal_err}",
-            html_content=f"<p><strong>Automated Dispatch Error:</strong></p><pre>{fatal_err}</pre>"
-        )
+        gmail_user = os.environ.get("GMAIL_ADDRESS")
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"[ALERT] Morning Dispatch Failed // {datetime.now().strftime('%Y-%m-%d')}"
+        msg["From"] = f"Morning Dispatch <{gmail_user}>"
+        msg["To"] = gmail_user
+        msg.attach(MIMEText(f"The automated newsletter run failed with error:\n\n{fatal_err}", "plain"))
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
+            server.login(gmail_user, os.environ.get("GMAIL_APP_PASSWORD"))
+            server.send_message(msg)
     except Exception:
         pass
     raise fatal_err
