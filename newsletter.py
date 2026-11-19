@@ -252,19 +252,19 @@ try:
     {raw_rss_feed}
 
     Select 6 distinct, high-signal articles from the list above covering:
-    - 2 stories on AI's impact on creative craft, design, publishing, art, or media.
-    - 2 stories on workplace friction, corporate decisions, or regulation involving AI and human judgment.
-    - 2 stories on cultural shifts, consumer behavior, or social debates around modern technology.
+- 2 stories on AI's impact on creative craft, design, publishing, art, or media.
+- 2 stories on workplace friction, corporate decisions, or regulation involving AI and human judgment.
+- 2 stories on cultural shifts, consumer behavior, or social debates around modern technology.
 
     STRICT RULES:
-    - Use ONLY articles present in the feed above.
-    - Copy the EXACT URL and EXACT Source Name from the feed—never alter a single character of a URL.
+- Use ONLY articles present in the feed above.
+- Copy the EXACT URL and EXACT Source Name from the feed—never alter a single character of a URL.
 
     For each of the 6 candidates, provide:
-    - Candidate Number (1 to 6)
-    - Raw Title & Exact Publication Name
-    - Exact URL
-    - Concrete facts, figures, names, and core tension based on the summary (3 sentences).
+- Candidate Number (1 to 6)
+- Raw Title & Exact Publication Name
+- Exact URL
+- Concrete facts, figures, names, and core tension based on the summary (3 sentences).
     """
 
     print("1/3 -> Starting Scout step (selecting 6 candidates)...")
@@ -278,18 +278,18 @@ try:
     {scout_output}
 
     YOUR EDITORIAL MISSION:
-    1. Discard weak stories (routine product updates, repetitive tropes, or thin summaries).
-    2. Select the BEST 3 stories—one for each pillar:
-       - 01 / CRAFT (Creativity, design, media, human skill)
-       - 02 / WORK (Institutions, labor, governance, human judgment)
-       - 03 / CULTURE (Behavior, psychology, society, daily life)
-    3. Define a unifying thread for today's edition (2 crisp sentences explaining what connects today's cultural mood).
-    4. For each of the 3 selected stories, define:
-       - The exact Category label (CRAFT, WORK, or CULTURE)
-       - A punchy lowercase headline (max 6 words)
-       - The sharp editorial angle (what is the real human tension here?)
-       - The verified facts, names, and numbers to preserve
-       - The exact Publication Name and exact URL (must match the Scout's URLs verbatim).
+1. Discard weak stories (routine product updates, repetitive tropes, or thin summaries).
+2. Select the BEST 3 stories—one for each pillar:
+  - 01 / CRAFT (Creativity, design, media, human skill)
+  - 02 / WORK (Institutions, labor, governance, human judgment)
+  - 03 / CULTURE (Behavior, psychology, society, daily life)
+3. Define a unifying thread for today's edition (2 crisp sentences explaining what connects today's cultural mood).
+4. For each of the 3 selected stories, define:
+  - The exact Category label (CRAFT, WORK, or CULTURE)
+  - A punchy lowercase headline (max 6 words)
+  - The sharp editorial angle (what is the real human tension here?)
+  - The verified facts, names, and numbers to preserve
+  - The exact Publication Name and exact URL (must match the Scout's URLs verbatim).
     """
 
     print("2/3 -> Starting Editor-in-Chief step (curating top 3)...")
@@ -300,26 +300,26 @@ try:
     You are a sharp editorial writer. Turn the Editor-in-Chief's approved brief into a crisp, effortless morning read.
 
     STYLE & RIGOR RULES:
-    - Clarity first: Short sentences, active verbs, concrete details (names, numbers, companies) from the brief.
-    - Never invent facts, quotes, or URLs not present in the brief below.
-    - Avoid convoluted metaphors, academic jargon, and AI clichés (never use delve, tapestry, landscape, paradigm, nuanced, labyrinth).
-    - Keep paragraphs short (3 to 4 lines max).
-    - DO NOT include any <img> tags anywhere.
+- Clarity first: Short sentences, active verbs, concrete details (names, numbers, companies) from the brief.
+- Never invent facts, quotes, or URLs not present in the brief below.
+- Avoid convoluted metaphors, academic jargon, and AI clichés (never use delve, tapestry, landscape, paradigm, nuanced, labyrinth).
+- Keep paragraphs short (3 to 4 lines max).
+- DO NOT include any <img> tags anywhere.
+- DO NOT include any takeaway boxes.
 
     Editor-in-Chief Brief:
     {editor_brief}
 
     Generate ONLY valid raw HTML (no markdown code blocks, no ```html):
-    - Start with the unifying 2-sentence editorial intro inside <p class="intro-text">...</p>
-    - For each of the 3 stories, wrap in <div class="story-block">:
-      * Index & Category header: <div class="story-meta">01 / CATEGORY</div> (use 01, 02, 03)
-      * <h2 class="story-title">lowercase headline</h2>
-      * <p class="subtitle">One plain, direct sentence summarizing the core development.</p>
-      * 2 short, factual paragraphs (<p>...</p>).
-      * Takeaway box: <div class="takeaway-box"><span class="takeaway-label">TAKEAWAY //</span> One clear, memorable sentence.</div>
-      * Source link block using ONLY the exact verified URL from the brief:
+- Start with the unifying 2-sentence editorial intro inside <p class="intro-text">...</p>
+- For each of the 3 stories, wrap in <div class="story-block">:
+  - Index & Category header: <div class="story-meta">01 / CATEGORY</div> (use 01, 02, 03)
+  - <h2 class="story-title">lowercase headline</h2>
+  - <p class="subtitle">One plain, direct sentence summarizing the core development.</p>
+  - 2 short, factual paragraphs (<p>...</p>).
+  - Source link block using ONLY the exact verified URL from the brief:
         <div class="source-row"><span class="source-label">SOURCE // PUBLICATION NAME</span> <a href="EXACT_URL" class="source-link" target="_blank">READ ARTICLE &rarr;</a></div>
-    - End with 1 simple, grounded closing thought inside <div class="parting-thought">...</div>.
+- End with 1 simple, grounded closing thought inside <div class="parting-thought">...</div>.
     """
 
     print("3/3 -> Starting Writer step (drafting HTML)...")
@@ -354,7 +354,6 @@ try:
     .top-bar { padding: 12px 30px; border-bottom: 1px solid #2140D6; font-size: 11px; font-weight: 600; letter-spacing: 1.2px; display: flex; justify-content: space-between; text-transform: uppercase; }
     .header { padding: 48px 30px 42px 30px; border-bottom: 1px solid #2140D6; }
     .header-title { font-family: 'Jost', 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif; margin: 0; font-size: 46px; font-weight: 600; line-height: 1.02; letter-spacing: -1.5px; color: #2140D6; }
-    .header-year { font-family: 'Jost', 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif; margin: 6px 0 0 0; font-size: 42px; font-weight: 500; line-height: 1.0; letter-spacing: -1px; color: #2140D6; }
     .header-sub { margin: 22px 0 0 0; font-size: 14px; font-weight: 400; max-width: 460px; line-height: 1.5; color: #2140D6; }
     .content { padding: 35px 30px; }
     .intro-text { font-size: 15px; padding-bottom: 28px; margin-bottom: 35px; border-bottom: 1px dashed #2140D6; }
@@ -364,8 +363,6 @@ try:
     .story-title { font-family: 'Jost', 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif; font-size: 28px; font-weight: 600; line-height: 1.12; letter-spacing: -0.6px; text-transform: lowercase; margin: 0 0 10px 0; color: #2140D6; }
     .subtitle { font-size: 15px; font-weight: 600; margin: 0 0 18px 0; line-height: 1.45; }
     p { margin: 0 0 16px 0; font-size: 15.5px; line-height: 1.65; font-weight: 400; }
-    .takeaway-box { border: 1px solid #2140D6; padding: 15px 18px; margin-top: 20px; font-size: 14.5px; line-height: 1.55; background-color: #F8F9FF; }
-    .takeaway-label { font-weight: 800; font-size: 12px; letter-spacing: 0.8px; margin-right: 4px; }
     .source-row { margin-top: 14px; padding-top: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
     .source-label { color: #2140D6; opacity: 0.8; }
     .source-link { color: #2140D6; text-decoration: underline; text-underline-offset: 3px; }
@@ -375,14 +372,13 @@ try:
 </head>
 <body>
   <div class="container">
-    <div class="top-bar"><span>DISPATCH // ISSUE DAILY</span><span>{{TODAY_STR}}</span></div>
+    <div class="top-bar"><span>DAILY DISPATCH</span><span>{{TODAY_STR}}</span></div>
     <div class="header">
       <h1 class="header-title">Morning AI &amp;<br>Culture Dispatch</h1>
-      <div class="header-year">2026</div>
       <p class="header-sub">A sharp, curated 4-minute briefing on human friction, creative craft, and algorithmic culture.</p>
     </div>
     <div class="content">{{NEWSLETTER_BODY}}</div>
-    <div class="footer"><span>CURATED WITH PRECISION</span><span>END OF DISPATCH &rarr;</span></div>
+    <div class="footer"><span>CURATED WITH PRECISION</span></div>
   </div>
   <div style="text-align:center; padding: 14px; font-size: 11px; color: #2140D6; opacity: 0.7;">
     Don’t want these daily briefings? <a href="mailto:{{UNSUB_EMAIL}}?subject=UNSUBSCRIBE" style="color: #2140D6;">Unsubscribe</a>
