@@ -517,10 +517,13 @@ def build_html_email(edition: dict, date_label: str) -> str:
             </td>
           </tr>
 
-          <!-- FOOTER -->
+<!-- FOOTER -->
           <tr>
-            <td class="footer-bar pad-mobile" style="padding: 18px 30px; border-top: 1px solid #1B38B8; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; color: #1B38B8;">
-              CURATED BY MULTI-AGENT EDITORIAL PIPELINE &bull; CRAFT, CULTURE &amp; AI
+            <td class="footer-bar pad-mobile" style="padding: 18px 30px; border-top: 1px solid #1B38B8; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.6; letter-spacing: 0.06em; color: #1B38B8;">
+              <div>CURATED BY MULTI-AGENT EDITORIAL PIPELINE &bull; CRAFT, CULTURE &amp; AI</div>
+              <div style="margin-top: 6px; font-size: 10px; opacity: 0.85;">
+                NO LONGER WANT THESE NOTES? REPLY WITH &ldquo;UNSUBSCRIBE&rdquo; ANYTIME.
+              </div>
             </td>
           </tr>
 
