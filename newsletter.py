@@ -5,6 +5,7 @@ import io
 import os
 import re
 import smtplib
+import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -27,7 +28,34 @@ RSS_FEEDS = [
     ("MIT Technology Review", "https://www.technologyreview.com/feed/"),
 ]
 
-MODEL_ID = "gemini-3.8-flash"
+MODEL_CANDIDATES = [
+    "gemini-3.8-flash",
+    "gemini-3.8-flash-lite",
+    "gemini-3.5-flash",
+]
+
+
+def generate_with_retry(client: genai.Client, prompt: str, temperature: float):
+    """Calls Gemini with exponential backoff and automatic model fallback on 503/429."""
+    last_error = None
+    for model_name in MODEL_CANDIDATES:
+        for attempt in range(4):
+            try:
+                return client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(temperature=temperature),
+                )
+            except Exception as exc:
+                last_error = exc
+                err_str = str(exc)
+                if "503" in err_str or "429" in err_str or "UNAVAILABLE" in err_str:
+                    wait_sec = 5 * (2 ** attempt)
+                    print(f"Model {model_name} busy (attempt {attempt + 1}/4). Retrying in {wait_sec}s...")
+                    time.sleep(wait_sec)
+                else:
+                    break
+    raise RuntimeError(f"All Gemini model attempts failed: {last_error}")
 
 
 # ==============================================================================
@@ -193,11 +221,7 @@ STRICT EXCLUSIONS:
 RSS DIGEST:
 {raw_feed_digest}
 """
-    scout_resp = client.models.generate_content(
-        model=MODEL_ID,
-        contents=scout_prompt,
-        config=types.GenerateContentConfig(temperature=0.4),
-    )
+    scout_resp = generate_with_retry(client, scout_prompt, temperature=0.4)
 
     # --- AGENT 2: THE EDITOR-IN-CHIEF ---
     editor_prompt = f"""
@@ -210,8 +234,8 @@ From the Scout's shortlist below, select exactly 3 stories that weave Craft, Cul
 Also compose:
 1. TODAY'S SIGNAL: A crisp 2-sentence editorial thesis connecting the thread across today's three stories.
 2. ONE OBJECT / ONE TAB: A curated cultural sign-off pair outside the breaking news cycle:
-   - ONE OBJECT: One tangible design artifact, book, architectural work, or tactile object worth noticing (no URLs).
-   - ONE TAB: One timeless essay, exhibition archive, or cultural curiosity to open later today (no URLs).
+  - ONE OBJECT: One tangible design artifact, book, architectural work, or tactile object worth noticing (no URLs).
+  - ONE TAB: One timeless essay, exhibition archive, or cultural curiosity to open later today (no URLs).
 
 Return ONLY valid structured plain text using this exact delimiter format:
 
@@ -247,11 +271,7 @@ ONE_TAB: <Essay/Archive — 1-sentence note on why it is worth reading later>
 SHORTLIST:
 {scout_resp.text}
 """
-    editor_resp = client.models.generate_content(
-        model=MODEL_ID,
-        contents=editor_prompt,
-        config=types.GenerateContentConfig(temperature=0.55),
-    )
+    editor_resp = generate_with_retry(client, editor_prompt, temperature=0.55)
 
     # --- AGENT 3: THE WRITER / COPY EDITOR ---
     writer_prompt = f"""
@@ -264,11 +284,7 @@ Polish the prose below so it reads like an independent print journal—calm, int
 DRAFT:
 {editor_resp.text}
 """
-    writer_resp = client.models.generate_content(
-        model=MODEL_ID,
-        contents=writer_prompt,
-        config=types.GenerateContentConfig(temperature=0.35),
-    )
+    writer_resp = generate_with_retry(client, writer_prompt, temperature=0.35)
 
     return parse_edition(writer_resp.text)
 
@@ -468,113 +484,4 @@ def build_html_email(edition: dict, date_label: str) -> str:
                 MORNING FIELD NOTES
               </div>
               <h1 class="hero-title" style="margin: 0; font-family: 'Jost', 'Helvetica Neue', Arial, sans-serif; font-size: 44px; line-height: 1.04; font-weight: 700; color: #0E238C; letter-spacing: -0.02em;">
-                Morning AI &amp;<br />Culture Dispatch
-              </h1>
-            </td>
-          </tr>
-
-          <!-- TODAY'S SIGNAL BAND -->
-          <tr>
-            <td class="signal-band pad-mobile" style="padding: 20px 30px; background-color: #EEF1F8; border-bottom: 1px solid #1B38B8;">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
-                <tr>
-                  <td width="135" valign="top" style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #1B38B8; padding-right: 14px;">
-                    TODAY'S SIGNAL //
-                  </td>
-                  <td class="signal-cell body-copy" valign="top" style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.62; color: #1A2340; border-left: 1px solid rgba(27,56,184,0.35); padding-left: 16px;">
-                    {signal_text}
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- THREE CURATED STORIES -->
-          <tr>
-            <td>
-              {''.join(stories_html)}
-            </td>
-          </tr>
-
-          <!-- ONE OBJECT / ONE TAB CULTURAL SIGN-OFF + BREATHING ROOM -->
-          <tr>
-            <td class="signoff-wrap" style="padding: 36px 30px 64px 30px;">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #10248A; border: 1px solid #0B1963; color: #F4F6FC;">
-                <tr>
-                  <td style="padding: 26px 26px 28px 26px;">
-                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #A6BCFF; margin-bottom: 16px;">
-                      CURATED PAIR // FOR LATER TODAY
-                    </div>
-                    <p style="margin: 0 0 14px 0; font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; line-height: 1.65; color: #F4F6FC;">
-                      <strong style="color: #A6BCFF; letter-spacing: 0.06em;">ONE OBJECT //</strong> {one_object}
-                    </p>
-                    <p style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; line-height: 1.65; color: #F4F6FC;">
-                      <strong style="color: #A6BCFF; letter-spacing: 0.06em;">ONE TAB //</strong> {one_tab}
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-<!-- FOOTER -->
-          <tr>
-            <td class="footer-bar pad-mobile" style="padding: 18px 30px; border-top: 1px solid #1B38B8; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.6; letter-spacing: 0.06em; color: #1B38B8;">
-              <div>CURATED BY MULTI-AGENT EDITORIAL PIPELINE &bull; CRAFT, CULTURE &amp; AI</div>
-              <div style="margin-top: 6px; font-size: 10px; opacity: 0.85;">
-                NO LONGER WANT THESE NOTES? REPLY WITH &ldquo;UNSUBSCRIBE&rdquo; ANYTIME.
-              </div>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>"""
-
-
-# ==============================================================================
-# 6. MAIN EXECUTION & GMAIL SMTP DISPATCH (PRIVATE BCC)
-# ==============================================================================
-def main():
-    api_key = os.environ["GEMINI_API_KEY"]
-    sender_email = os.environ["GMAIL_ADDRESS"]
-    app_password = os.environ["GMAIL_APP_PASSWORD"]
-
-    recipients = get_subscribers(default_email=sender_email)
-    if not recipients:
-        raise ValueError("No valid recipients found.")
-
-    now = datetime.datetime.now(datetime.timezone.utc)
-    today_iso = now.strftime("%Y-%m-%d")
-    date_label = now.strftime("%a, %d %b %Y").upper()
-
-    print("1. Fetching RSS feeds...")
-    raw_digest = fetch_rss_news()
-
-    print("2. Running Scout -> Editor-in-Chief -> Writer agents...")
-    client = genai.Client(api_key=api_key)
-    edition = run_editorial_pipeline(client, raw_digest, today_iso)
-
-    print("3. Rendering responsive HTML email...")
-    html_body = build_html_email(edition, date_label)
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"Morning AI & Culture Dispatch — {now.strftime('%b %d')}"
-    msg["From"] = f"Morning AI & Culture Dispatch <{sender_email}>"
-    msg["To"] = sender_email
-    msg["Bcc"] = ", ".join(recipients)
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
-
-    print(f"4. Sending edition via Bcc to {len(recipients)} subscriber(s)...")
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(sender_email, app_password)
-        server.sendmail(sender_email, recipients, msg.as_string())
-
-    print("Done! Edition dispatched successfully.")
-
-
-if __name__ == "__main__":
-    main()
+                Morning AI &amp;<br
