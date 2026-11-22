@@ -22,16 +22,16 @@ client = genai.Client(
 
 # FUENTES RSS OFICIALES DE PRIMER NIVEL (INCLUYENDO THE NEW YORK TIMES)
 RSS_FEEDS = [
-    ("New York Times Tech", "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"),
     ("New York Times Arts & Culture", "https://rss.nytimes.com/services/xml/rss/nyt/Arts.xml"),
-    ("New York Times Business", "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"),
-    ("MIT Technology Review", "https://www.technologyreview.com/feed/"),
-    ("Wired", "https://www.wired.com/feed/rss"),
-    ("Ars Technica", "https://feeds.arstechnica.com/arstechnica/index"),
-    ("The Verge", "https://www.theverge.com/rss/index.xml"),
-    ("The Guardian Tech", "https://www.theguardian.com/uk/technology/rss"),
+    ("New York Times Tech", "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"),
     ("The Guardian Culture", "https://www.theguardian.com/culture/rss"),
-    ("Financial Times Tech", "https://www.ft.com/technology?format=rss")
+    ("The Guardian Art & Design", "https://www.theguardian.com/artanddesign/rss"),
+    ("Wired", "https://www.wired.com/feed/rss"),
+    ("MIT Technology Review", "https://www.technologyreview.com/feed/"),
+    ("Aeon Magazine", "https://aeon.co/feed.rss"),
+    ("The Verge", "https://www.theverge.com/rss/index.xml"),
+    ("Ars Technica", "https://feeds.arstechnica.com/arstechnica/index"),
+    ("The Guardian Tech", "https://www.theguardian.com/uk/technology/rss")
 ]
 
 def get_available_models() -> list[str]:
@@ -250,10 +250,9 @@ try:
 
     {raw_rss_feed}
 
-    Select 6 distinct, high-signal articles from the list above covering:
-    - 2 stories on AI's impact on creative craft, design, publishing, art, or media.
-    - 2 stories on workplace friction, corporate decisions, or regulation involving AI and human judgment.
-    - 2 stories on cultural shifts, consumer behavior, or social debates around modern technology.
+    Select 6 distinct, high-signal articles from the list above where CREATIVE CRAFT, HUMAN CULTURE, and NEW TECHNOLOGY / AI intersect:
+    - Look for stories about how artists, designers, architects, writers, filmmakers, or everyday communities are shaping—or pushing back against—AI and emerging tools.
+    - Avoid dry corporate earnings, stock news, or routine enterprise software updates.
 
     STRICT RULES:
     - Use ONLY articles present in the feed above.
@@ -272,25 +271,25 @@ try:
 
     # AGENTE 2: EDITOR JEFE (CURADURÍA, MACRO SIGNAL Y ONE OBJECT / ONE TAB)
     editor_prompt = f"""
-    You are the Editor-in-Chief of "Morning AI & Culture Dispatch", an avant-garde minimalist daily briefing.
+    You are the Editor-in-Chief of "Morning AI & Culture Dispatch", an avant-garde minimalist daily briefing exploring the intersection of human craft, culture, and technology.
     Review the 6 candidate stories gathered by the Scout below:
 
     {scout_output}
 
     YOUR EDITORIAL MISSION:
-    1. Discard weak stories (routine product updates, repetitive tropes, or thin summaries).
-    2. Select the BEST 3 stories—one for each pillar:
-       - 01 / CRAFT (Creativity, design, media, human skill)
-       - 02 / WORK (Institutions, labor, governance, human judgment)
-       - 03 / CULTURE (Behavior, psychology, society, daily life)
+    1. Discard weak stories (routine product updates, dry corporate news, or thin summaries).
+    2. Select the BEST 3 stories—each one blending creative craft, cultural resonance, and new technology/AI from a distinct angle:
+       - 01 / CRAFT & AI (How makers, designers, or artists are reshaping physical/digital craft with or against AI)
+       - 02 / CULTURE & TECH (How new technologies are shifting shared rituals, taste, art, or human perception)
+       - 03 / DESIGN & FUTURES (Emerging creative tools, material breakthroughs, or aesthetic counter-movements)
     3. Define TODAY'S MACRO SIGNAL:
        - A punchy 2-to-4 character stat or multiplier (e.g., "3X", "40%", "24H", "1:1") that captures the overarching pattern across today's edition (do NOT simply repeat a stat verbatim from Story 03).
        - A crisp 1-sentence explanation of what that signal reveals about today's edition.
     4. Define THE THREAD: 2 crisp sentences explaining the hidden tension connecting all three stories today.
     5. For each of the 3 selected stories, define:
-       - Exact Category label (CRAFT, WORK, or CULTURE)
+       - Exact Category label (CRAFT & AI, CULTURE & TECH, or DESIGN & FUTURES)
        - Estimated reading time (e.g., "80 SEC READ", "90 SEC READ")
-       - A punchy lowercase headline (max 6 words)
+       - A punchy sentence-case headline (capitalize the first word and proper nouns, max 6 words)
        - Verified facts, names, and numbers to preserve
        - Exact Publication Name, exact URL, and exact IMAGE_URL (must match the Scout's URLs verbatim).
     6. Define a curated cultural sign-off pair ("ONE OBJECT / ONE TAB") inspired by the mood of today's stories:
@@ -333,13 +332,13 @@ try:
            <p class="intro-text"><span class="dropcap">FIRST_LETTER</span>REST_OF_2_SENTENCE_INTRO</p>
          </div>
 
-         <!-- Repeat for each of the 3 stories (01 / CRAFT, 02 / WORK, 03 / CULTURE) -->
+         <!-- Repeat for each of the 3 stories (01 / CRAFT & AI, 02 / CULTURE & TECH, 03 / DESIGN & FUTURES) -->
          <div class="story-block">
            <div class="story-meta-row">
              <span class="pill-tag">01 / CATEGORY</span>
              <span class="read-badge">90 SEC READ</span>
            </div>
-           <h2 class="story-title">lowercase headline</h2>
+           <h2 class="story-title">Sentence-case headline</h2>
            <p class="subtitle">One plain, direct sentence summarizing the core development.</p>
            <p>First short factual paragraph.</p>
            <p>Second short factual paragraph.</p>
@@ -438,31 +437,31 @@ try:
     .story-meta-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; }
     .pill-tag { font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.9px; text-transform: uppercase; color: #FFFFFF; background-color: #0D2BB0; background-image: linear-gradient(135deg, #0D2BB0 0%, #2448DB 100%); border: 1px solid rgba(255, 255, 255, 0.35); padding: 4px 13px; border-radius: 999px; }
     .read-badge { font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.8px; padding: 3px 9px; border: 1px solid rgba(10, 36, 150, 0.25); border-radius: 999px; color: #3A50AC; text-transform: uppercase; }
-    .story-title { font-family: 'Jost', 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif; font-size: 28px; font-weight: 600; line-height: 1.12; letter-spacing: -0.6px; text-transform: lowercase; margin: 0 0 10px 0; color: #0A2496; }
-    .subtitle { font-size: 15px; font-weight: 600; margin: 0 0 16px 0; line-height: 1.48; color: #0A2496; }
-    p { margin: 0 0 15px 0; font-size: 15.5px; line-height: 1.68; font-weight: 400; color: #0A2496; }
-    .story-media { margin: 20px 0 6px 0; border: 1px solid rgba(10, 36, 150, 0.24); background-color: #EBF0FA; }
-    .story-img { display: block; width: 100%; height: auto; max-height: 310px; object-fit: cover; }
-    .story-caption { padding: 7px 12px; border-top: 1px solid rgba(10, 36, 150, 0.2); font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: #3A50AC; }
-    .source-row { margin-top: 16px; padding-top: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.7px; text-transform: uppercase; }
-    .source-label { color: #3A50AC; }
-    /* Deep Cobalt Curated Cultural Pair Sign-Off Card */
-    .verdict-box { background-color: #082094; background-image: radial-gradient(circle at 88% 20%, rgba(168, 198, 255, 0.28) 0%, transparent 55%), linear-gradient(145deg, #05166B 0%, #0E2CB5 100%); color: #FFFFFF; padding: 26px 26px; margin-top: 32px; border: 1px solid #0A2496; }
-    .verdict-header { font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: rgba(255, 255, 255, 0.72); margin-bottom: 16px; }
-    .verdict-row { font-size: 14.5px; line-height: 1.55; color: #FFFFFF; }
-    .verdict-row:nth-of-type(2) { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.25); }
-    .verdict-tag { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; display: inline-block; margin-right: 8px; background-color: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 999px; padding: 2px 9px; color: #FFFFFF; }
-
-    /* Footer */
-    .footer { padding: 26px 30px; border-top: 1px solid rgba(10, 36, 150, 0.22); font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; display: flex; justify-content: space-between; text-transform: uppercase; letter-spacing: 1.2px; color: #3A50AC; }
+    @media (prefers-color-scheme: dark) {
+      body { background-color: #060A14 !important; color: #C4D4FF !important; }
+      .container { background-color: #0E1528 !important; border-color: rgba(168, 192, 255, 0.28) !important; }
+      .hero-wrap { background-color: #091338 !important; background-image: linear-gradient(155deg, #091338 0%, #0E216B 55%, #16339E 100%) !important; border-bottom-color: rgba(168, 192, 255, 0.28) !important; }
+      .top-bar { color: #DCE6FF !important; background-color: rgba(9, 19, 56, 0.55) !important; border-bottom-color: rgba(168, 192, 255, 0.28) !important; }
+      .header-title { color: #FFFFFF !important; }
+      .header-sub { color: #DCE6FF !important; }
+      .ticker-band { background-color: #15213E !important; border-bottom-color: rgba(168, 192, 255, 0.28) !important; }
+      .ticker-tag, .thread-label, .read-badge, .story-caption, .source-label, .footer { color: #93AEFF !important; }
+      .ticker-number, .ticker-desc, .intro-text, .dropcap, .story-title, .subtitle, p, .source-link { color: #C4D4FF !important; }
+      .ticker-desc, .thread-box, .story-block, .story-media, .story-caption, .footer, .read-badge { border-color: rgba(168, 192, 255, 0.28) !important; }
+      .story-media { background-color: #15213E !important; }
+    }
 
     @media only screen and (max-width: 600px) {
-      .top-bar, .footer { padding-left: 18px !important; padding-right: 18px !important; }
-      .content { padding: 28px 18px 46px 18px !important; }
-      .header { padding: 30px 18px !important; }
-      .header-title { font-size: 32px !important; }
-      .story-title { font-size: 23px !important; }
-      .ticker-band { padding: 16px 18px !important; display: block !important; }
+      .top-bar { padding: 11px 16px !important; font-size: 10px !important; }
+      .footer { padding: 20px 16px !important; font-size: 10px !important; flex-wrap: wrap !important; gap: 8px !important; }
+      .content { padding: 24px 16px 46px 16px !important; }
+      .header { padding: 28px 16px !important; }
+      .header-title { font-size: 30px !important; line-height: 1.06 !important; }
+      .header-sub { font-size: 13.5px !important; }
+      .story-title { font-size: 22px !important; line-height: 1.18 !important; }
+      .story-img { max-height: 200px !important; }
+      .verdict-box { padding: 20px 16px !important; }
+      .ticker-band { padding: 16px !important; display: block !important; }
       .ticker-desc { border-left: none !important; border-top: 1px solid rgba(10, 36, 150, 0.22) !important; padding-left: 0 !important; padding-top: 10px !important; margin-top: 10px !important; }
     }
   </style>
