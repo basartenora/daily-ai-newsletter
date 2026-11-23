@@ -95,7 +95,6 @@ def get_subscribers(default_email: str = "") -> list[str]:
             if not row:
                 continue
 
-            # Skip only if explicitly marked inactive/unsubscribed
             if status_idx is not None and len(row) > status_idx:
                 status = row[status_idx].strip().lower()
                 if status in {"unsubscribed", "inactive", "paused", "no"}:
@@ -140,7 +139,6 @@ def _extract_image_url(item: ET.Element) -> str:
             if url.startswith("http") and mime.startswith("image/"):
                 return url
 
-    # Fallback: check for <img> inside description or content:encoded
     for elem in item.iter():
         if elem.text and "<img" in elem.text:
             match = re.search(r'<img[^>]+src=["\'](https?://[^"\']+)["\']', elem.text, re.IGNORECASE)
@@ -206,7 +204,6 @@ def fetch_rss_news(max_per_feed: int = 6) -> str:
 def run_editorial_pipeline(client: genai.Client, raw_feed_digest: str, today_str: str) -> dict:
     """Runs Scout -> Editor-in-Chief -> Writer to produce structured edition data."""
 
-    # --- AGENT 1: THE SCOUT ---
     scout_prompt = f"""
 You are the Cultural & Tech Scout for "Morning AI & Culture Dispatch" ({today_str}).
 Review the RSS digest below and shortlist the 8 strongest stories that sit at the intersection of:
@@ -223,7 +220,6 @@ RSS DIGEST:
 """
     scout_resp = generate_with_retry(client, scout_prompt, temperature=0.4)
 
-    # --- AGENT 2: THE EDITOR-IN-CHIEF ---
     editor_prompt = f"""
 You are the Editor-in-Chief of "Morning AI & Culture Dispatch" ({today_str}).
 From the Scout's shortlist below, select exactly 3 stories that weave Craft, Culture, and Technology/AI together into a cohesive, contemplative morning edition:
@@ -273,7 +269,6 @@ SHORTLIST:
 """
     editor_resp = generate_with_retry(client, editor_prompt, temperature=0.55)
 
-    # --- AGENT 3: THE WRITER / COPY EDITOR ---
     writer_prompt = f"""
 You are the Lead Copy Editor for "Morning AI & Culture Dispatch".
 Polish the prose below so it reads like an independent print journal—calm, intelligent, unhurried, and completely free of breathless AI hype or corporate jargon.
@@ -468,20 +463,116 @@ def build_html_email(edition: dict, date_label: str) -> str:
     <tr>
       <td align="center">
         <table role="presentation" width="640" cellspacing="0" cellpadding="0" class="container" style="max-width: 640px; width: 100%; background-color: #F6F7F9; border: 1px solid #1B38B8;">
-          
-          <!-- TOP META BAR -->
           <tr>
             <td class="top-bar pad-mobile" style="padding: 12px 30px; border-bottom: 1px solid #1B38B8; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #1B38B8;">
               <span>EDITION // {html.escape(date_label)}</span>
               <span style="float: right;">CRAFT &bull; CULTURE &bull; TECH</span>
             </td>
           </tr>
-
-          <!-- ATMOSPHERIC COBALT HEADER -->
           <tr>
             <td class="hero-box pad-mobile" style="padding: 44px 30px 40px 30px; border-bottom: 1px solid #1B38B8; background: linear-gradient(125deg, #F6F7F9 0%, #DCE4FA 48%, #3456D1 86%, #132A9C 100%);">
               <div class="hero-sub" style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #1B38B8; margin-bottom: 12px;">
                 MORNING FIELD NOTES
               </div>
               <h1 class="hero-title" style="margin: 0; font-family: 'Jost', 'Helvetica Neue', Arial, sans-serif; font-size: 44px; line-height: 1.04; font-weight: 700; color: #0E238C; letter-spacing: -0.02em;">
-                Morning AI &amp;<br
+                Morning AI &amp;<br />Culture Dispatch
+              </h1>
+            </td>
+          </tr>
+          <tr>
+            <td class="signal-band pad-mobile" style="padding: 20px 30px; background-color: #EEF1F8; border-bottom: 1px solid #1B38B8;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td width="135" valign="top" style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #1B38B8; padding-right: 14px;">
+                    TODAY'S SIGNAL //
+                  </td>
+                  <td class="signal-cell body-copy" valign="top" style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.62; color: #1A2340; border-left: 1px solid rgba(27,56,184,0.35); padding-left: 16px;">
+                    {signal_text}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              {''.join(stories_html)}
+            </td>
+          </tr>
+          <tr>
+            <td class="signoff-wrap" style="padding: 36px 30px 64px 30px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #10248A; border: 1px solid #0B1963; color: #F4F6FC;">
+                <tr>
+                  <td style="padding: 26px 26px 28px 26px;">
+                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #A6BCFF; margin-bottom: 16px;">
+                      CURATED PAIR // FOR LATER TODAY
+                    </div>
+                    <p style="margin: 0 0 14px 0; font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; line-height: 1.65; color: #F4F6FC;">
+                      <strong style="color: #A6BCFF; letter-spacing: 0.06em;">ONE OBJECT //</strong> {one_object}
+                    </p>
+                    <p style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; line-height: 1.65; color: #F4F6FC;">
+                      <strong style="color: #A6BCFF; letter-spacing: 0.06em;">ONE TAB //</strong> {one_tab}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td class="footer-bar pad-mobile" style="padding: 18px 30px; border-top: 1px solid #1B38B8; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.6; letter-spacing: 0.06em; color: #1B38B8;">
+              <div>CURATED BY MULTI-AGENT EDITORIAL PIPELINE &bull; CRAFT, CULTURE &amp; AI</div>
+              <div style="margin-top: 6px; font-size: 10px; opacity: 0.85;">
+                NO LONGER WANT THESE NOTES? REPLY WITH &ldquo;UNSUBSCRIBE&rdquo; ANYTIME.
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+
+# ==============================================================================
+# 6. MAIN EXECUTION & GMAIL SMTP DISPATCH (PRIVATE BCC)
+# ==============================================================================
+def main():
+    api_key = os.environ["GEMINI_API_KEY"]
+    sender_email = os.environ["GMAIL_ADDRESS"]
+    app_password = os.environ["GMAIL_APP_PASSWORD"]
+
+    recipients = get_subscribers(default_email=sender_email)
+    if not recipients:
+        raise ValueError("No valid recipients found.")
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    today_iso = now.strftime("%Y-%m-%d")
+    date_label = now.strftime("%a, %d %b %Y").upper()
+
+    print("1. Fetching RSS feeds...")
+    raw_digest = fetch_rss_news()
+
+    print("2. Running Scout -> Editor-in-Chief -> Writer agents...")
+    client = genai.Client(api_key=api_key)
+    edition = run_editorial_pipeline(client, raw_digest, today_iso)
+
+    print("3. Rendering responsive HTML email...")
+    html_body = build_html_email(edition, date_label)
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"Morning AI & Culture Dispatch — {now.strftime('%b %d')}"
+    msg["From"] = f"Morning AI & Culture Dispatch <{sender_email}>"
+    msg["To"] = sender_email
+    msg["Bcc"] = ", ".join(recipients)
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    print(f"4. Sending edition via Bcc to {len(recipients)} subscriber(s)...")
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(sender_email, app_password)
+        server.sendmail(sender_email, recipients, msg.as_string())
+
+    print("Done! Edition dispatched successfully.")
+
+
+if __name__ == "__main__":
+    main()
