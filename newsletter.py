@@ -3,6 +3,7 @@ import datetime
 import html
 import io
 import os
+import random
 import re
 import smtplib
 import time
@@ -30,13 +31,14 @@ RSS_FEEDS = [
 
 MODEL_CANDIDATES = [
     "gemini-3.8-flash",
-    "gemini-3.8-flash-lite",
-    "gemini-3.5-flash",
+    "gemini-2.5-pro",
+    "gemini-3.8-pro",
+    "gemini-2.0-flash",
 ]
 
 
 def generate_with_retry(client: genai.Client, prompt: str, temperature: float):
-    """Calls Gemini with exponential backoff and automatic model fallback on 503/429."""
+    """Calls Gemini with jittered exponential backoff and cross-family model fallback."""
     last_error = None
     for model_name in MODEL_CANDIDATES:
         for attempt in range(4):
@@ -50,10 +52,11 @@ def generate_with_retry(client: genai.Client, prompt: str, temperature: float):
                 last_error = exc
                 err_str = str(exc)
                 if "503" in err_str or "429" in err_str or "UNAVAILABLE" in err_str:
-                    wait_sec = 5 * (2 ** attempt)
-                    print(f"Model {model_name} busy (attempt {attempt + 1}/4). Retrying in {wait_sec}s...")
+                    wait_sec = (6 * (2 ** attempt)) + random.uniform(1.0, 4.0)
+                    print(f"Model {model_name} busy (attempt {attempt + 1}/4). Retrying in {wait_sec:.1f}s...")
                     time.sleep(wait_sec)
                 else:
+                    print(f"Skipping {model_name} ({err_str[:80]}...)")
                     break
     raise RuntimeError(f"All Gemini model attempts failed: {last_error}")
 
@@ -165,7 +168,7 @@ def is_valid_image_url(url: str) -> bool:
         return False
 
 
-def fetch_rss_news(max_per_feed: int = 6) -> str:
+def fetch_rss_news(max_per_feed: int = 4) -> str:
     """Fetches recent headlines, summaries, links, and image URLs across feeds."""
     entries = []
     for source_name, feed_url in RSS_FEEDS:
@@ -181,7 +184,7 @@ def fetch_rss_news(max_per_feed: int = 6) -> str:
                 link = (item.findtext("link") or "").strip()
                 raw_desc = (item.findtext("description") or "").strip()
                 clean_desc = re.sub(r"<[^>]+>", " ", html.unescape(raw_desc))
-                clean_desc = re.sub(r"\s+", " ", clean_desc).strip()[:360]
+                clean_desc = re.sub(r"\s+", " ", clean_desc).strip()[:220]
                 img_url = _extract_image_url(item)
 
                 if title and link:
