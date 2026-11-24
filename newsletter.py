@@ -29,19 +29,30 @@ RSS_FEEDS = [
     ("MIT Technology Review", "https://www.technologyreview.com/feed/"),
 ]
 
-MODEL_CANDIDATES = [
-    "gemini-3.8-flash",
-    "gemini-2.5-pro",
-    "gemini-3.8-pro",
-    "gemini-2.0-flash",
-]
+
+def get_available_models(client: genai.Client) -> list[str]:
+    """Discovers active Gemini/Gemma models enabled for this API key, prioritizing gemini-3.8-flash."""
+    discovered = ["gemini-3.8-flash"]
+    try:
+        for m in client.models.list():
+            name = (m.name or "").replace("models/", "")
+            methods = getattr(m, "supported_actions", None) or getattr(m, "supported_generation_methods", None) or []
+            if any(k in name for k in ("gemini-", "gemma-3")) and "embed" not in name and "tts" not in name and "image" not in name:
+                if not methods or "generateContent" in methods:
+                    if name not in discovered:
+                        discovered.append(name)
+    except Exception as exc:
+        print(f"Warning: Could not list models dynamically ({exc}).")
+    print(f"Active model pool: {discovered[:5]}")
+    return discovered[:5]
 
 
-def generate_with_retry(client: genai.Client, prompt: str, temperature: float):
-    """Calls Gemini with jittered exponential backoff and cross-family model fallback."""
+def generate_with_retry(client: genai.Client, prompt: str, temperature: float, model_pool: list[str]):
+    """Calls Gemini with patient jittered backoff across verified active models."""
     last_error = None
-    for model_name in MODEL_CANDIDATES:
-        for attempt in range(4):
+    for model_name in model_pool:
+        max_attempts = 8 if model_name == "gemini-3.8-flash" else 3
+        for attempt in range(max_attempts):
             try:
                 return client.models.generate_content(
                     model=model_name,
@@ -52,13 +63,13 @@ def generate_with_retry(client: genai.Client, prompt: str, temperature: float):
                 last_error = exc
                 err_str = str(exc)
                 if "503" in err_str or "429" in err_str or "UNAVAILABLE" in err_str:
-                    wait_sec = (6 * (2 ** attempt)) + random.uniform(1.0, 4.0)
-                    print(f"Model {model_name} busy (attempt {attempt + 1}/4). Retrying in {wait_sec:.1f}s...")
+                    wait_sec = min(45.0, (5 * (1.6 ** attempt)) + random.uniform(1.0, 4.0))
+                    print(f"Model {model_name} busy (attempt {attempt + 1}/{max_attempts}). Retrying in {wait_sec:.1f}s...")
                     time.sleep(wait_sec)
                 else:
                     print(f"Skipping {model_name} ({err_str[:80]}...)")
                     break
-    raise RuntimeError(f"All Gemini model attempts failed: {last_error}")
+    raise RuntimeError(f"All active model attempts failed: {last_error}")
 
 
 # ==============================================================================
@@ -206,6 +217,7 @@ def fetch_rss_news(max_per_feed: int = 4) -> str:
 # ==============================================================================
 def run_editorial_pipeline(client: genai.Client, raw_feed_digest: str, today_str: str) -> dict:
     """Runs Scout -> Editor-in-Chief -> Writer to produce structured edition data."""
+    model_pool = get_available_models(client)
 
     scout_prompt = f"""
 You are the Cultural & Tech Scout for "Morning AI & Culture Dispatch" ({today_str}).
@@ -221,7 +233,8 @@ STRICT EXCLUSIONS:
 RSS DIGEST:
 {raw_feed_digest}
 """
-    scout_resp = generate_with_retry(client, scout_prompt, temperature=0.4)
+    scout_resp = generate_with_retry(client, scout_prompt, temperature=0.4, model_pool=model_pool)
+    time.sleep(4)
 
     editor_prompt = f"""
 You are the Editor-in-Chief of "Morning AI & Culture Dispatch" ({today_str}).
@@ -270,7 +283,8 @@ ONE_TAB: <Essay/Archive — 1-sentence note on why it is worth reading later>
 SHORTLIST:
 {scout_resp.text}
 """
-    editor_resp = generate_with_retry(client, editor_prompt, temperature=0.55)
+    editor_resp = generate_with_retry(client, editor_prompt, temperature=0.55, model_pool=model_pool)
+    time.sleep(4)
 
     writer_prompt = f"""
 You are the Lead Copy Editor for "Morning AI & Culture Dispatch".
@@ -282,7 +296,7 @@ Polish the prose below so it reads like an independent print journal—calm, int
 DRAFT:
 {editor_resp.text}
 """
-    writer_resp = generate_with_retry(client, writer_prompt, temperature=0.35)
+    writer_resp = generate_with_retry(client, writer_prompt, temperature=0.35, model_pool=model_pool)
 
     return parse_edition(writer_resp.text)
 
